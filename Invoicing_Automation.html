@@ -3402,7 +3402,7 @@ function renderExcelImport(){
   document.getElementById("page-6").innerHTML=`
   <p class="sec-title">📥 엑셀 파일 가져오기</p>
   <div class="info-box info-blue" style="margin-bottom:16px">
-    📋 <strong>엑셀 컬럼 자동 인식:</strong> NO / 공사형태 / 공종 / 아파트명 / 특허번호 / 공사명 / 낙찰사 / 낙찰금액 / <strong>자재주문일1~6 / 자재주문금액1~6 / 세금계산서발행일1~6 / 입금일1~6</strong> (차수별 컬럼) / 낙찰일 / 준공예정일
+    📋 <strong>엑셀 컬럼 자동 인식:</strong> NO / 공사형태 / 공종 / 아파트명 / 특허번호 / 공사명 / 낙찰사 / 낙찰금액 / 자재주문일 / 자재주문금액 / 세금계산서발행일 / 발행금액 / 입금일 / 입금액 / 낙찰일 / 준공예정일
   </div>
   <div class="upload-zone" onclick="document.getElementById('excel-file-input').click()">
     <div class="icon">📂</div>
@@ -3494,21 +3494,6 @@ function showExcelPreview(){
     const sel=document.getElementById(`map-${def.key}`);
     if(sel&&mapping[def.key]>=0) sel.value=mapping[def.key];
   });
-
-  // ── 다차수 컬럼 위치를 전역 저장 (importExcelData에서 사용) ──
-  window._multiOrderCols=[];
-  for(let seq=1;seq<=9;seq++){
-    let oIdx=-1,aIdx=-1,iIdx=-1,dIdx=-1;
-    excelHeaders.forEach(function(h,i){
-      var n=h?String(h).trim():'';
-      if(n==='자재주문일'+seq||n==='주문일'+seq)      oIdx=i;
-      if(n==='자재주문금액'+seq||n==='주문금액'+seq)  aIdx=i;
-      if(n==='세금계산서발행일'+seq||n==='계산서발행일'+seq) iIdx=i;
-      if(n==='입금일'+seq)                            dIdx=i;
-    });
-    if(oIdx<0&&aIdx<0&&iIdx<0&&dIdx<0) break;
-    window._multiOrderCols.push({seq,oIdx,aIdx,iIdx,dIdx});
-  }
 }
 
 function getMapVal(key){
@@ -3525,20 +3510,6 @@ function importExcelData(){
     const idx=maps[key];
     return idx>=0&&idx<row.length?row[idx]:"";
   };
-
-  // ── 다차수 컬럼 위치 감지 (offset 방식) ──
-  // 자동 매핑된 첫 주문일 인덱스 기준, 4컬럼 stride로 차수별 위치 계산
-  const multiOrderCols=[];
-  var _baseO=maps["orderDate"],_baseA=maps["orderAmount"],_baseI=maps["invoiceDate"],_baseD=maps["depositDate"];
-  var _tailStart=maps["bidConfirmDate"]>=0?maps["bidConfirmDate"]:excelHeaders.length;
-  if(_baseO>=0){
-    for(var _seq=1;_seq<=9;_seq++){
-      var _off=(_seq-1)*4;
-      var _oI=_baseO+_off,_aI=_baseA>=0?_baseA+_off:-1,_iI=_baseI>=0?_baseI+_off:-1,_dI=_baseD>=0?_baseD+_off:-1;
-      if(_oI>=_tailStart||_oI>=excelHeaders.length) break;
-      multiOrderCols.push({seq:_seq,oIdx:_oI,aIdx:_aI,iIdx:_iI,dIdx:_dI});
-    }
-  }
 
   let imported=0, skipped=0;
   const newProjects=[];
@@ -3569,26 +3540,15 @@ function importExcelData(){
     let finalStatus = validStatuses.includes(importedStatus) ? importedStatus
       : ct==="공고" ? "대기" : "진행중";
 
-    // ── 자재주문 다중 차수 처리 ──
+    const orderDate=excelDateToStr(getCell(row,"orderDate"));
+    const orderAmount=cleanNum(getCell(row,"orderAmount"));
+    const invoiceDate=excelDateToStr(getCell(row,"invoiceDate"));
+    const depositDate=excelDateToStr(getCell(row,"depositDate"));
+    const depositAmount=cleanNum(getCell(row,"depositAmount"));
+
     const orders=[];
-    if(multiOrderCols.length>0){
-      multiOrderCols.forEach(function(c){
-        var oDate=c.oIdx>=0?excelDateToStr(row[c.oIdx]):"";
-        var oAmt =c.aIdx>=0?cleanNum(row[c.aIdx]):0;
-        var iDate=c.iIdx>=0?excelDateToStr(row[c.iIdx]):"";
-        var dDate=c.dIdx>=0?excelDateToStr(row[c.dIdx]):"";
-        if(oAmt>0||oDate){
-          orders.push({id:Date.now()+ri*10+c.seq,date:oDate||todayStr(),item:"자재",qty:1,unitPrice:oAmt||0,amount:oAmt||0,invoiceDate:iDate||"",depositDate:dDate||""});
-        }
-      });
-    } else {
-      var orderDate=excelDateToStr(getCell(row,"orderDate"));
-      var orderAmount=cleanNum(getCell(row,"orderAmount"));
-      var invoiceDate=excelDateToStr(getCell(row,"invoiceDate"));
-      var depositDate=excelDateToStr(getCell(row,"depositDate"));
-      if(orderAmount>0){
-        orders.push({id:Date.now()+ri,date:orderDate||todayStr(),item:"자재",qty:1,unitPrice:orderAmount,amount:orderAmount,invoiceDate:invoiceDate||"",depositDate:depositDate||""});
-      }
+    if(orderAmount>0){
+      orders.push({id:Date.now()+ri,date:orderDate||todayStr(),item:"자재",qty:1,unitPrice:orderAmount,amount:orderAmount,invoiceDate:invoiceDate||"",depositDate:depositDate||""});
     }
 
     newProjects.push({
@@ -4579,6 +4539,7 @@ async function fbLoad(){
     const d = snap.val();
     if(d.projects) projects = d.projects;
     if(d.allBills) allBills = d.allBills;
+    normalizeData();
     return true;
   }catch(e){ console.warn("fbLoad error:", e); return false; }
 }
@@ -4592,6 +4553,7 @@ function fbListen(){
     const d = snap.val();
     if(d.projects) projects = d.projects;
     if(d.allBills) allBills = d.allBills;
+    normalizeData();
     try{ localStorage.setItem(SAVE_KEY, JSON.stringify({projects, allBills})); }catch(_){}
     renderPage(currentTab);
     fbShowStatus("🔄 다른 기기에서 변경 반영됨", "#4338ca");
@@ -4683,6 +4645,16 @@ function saveData(){
   if(_fbRef) fbSave();
 }
 
+// ── 데이터 정규화: orders 없는 프로젝트 방어 ──
+function normalizeData(){
+  projects = (projects||[]).map(p => ({
+    ...p,
+    orders: Array.isArray(p.orders) ? p.orders : [],
+    bills:  Array.isArray(p.bills)  ? p.bills  : [],
+  }));
+  allBills = Array.isArray(allBills) ? allBills : [];
+}
+
 function loadData(){
   try{
     // v2 키 먼저 시도
@@ -4693,6 +4665,7 @@ function loadData(){
     const parsed = JSON.parse(raw);
     if(parsed.projects) projects = parsed.projects;
     if(parsed.allBills) allBills = parsed.allBills;
+    normalizeData();
   }catch(e){ console.warn("불러오기 실패", e); }
 }
 
