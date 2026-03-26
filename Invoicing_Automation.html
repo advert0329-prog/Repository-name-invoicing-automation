@@ -3174,7 +3174,8 @@ async function downloadNoticeXlsx(p, seqNo){
     // ── sharedStrings.xml: 새 문자열 추가 ──
     let ssXml = await zip.file("xl/sharedStrings.xml").async("string");
 
-    const ORIG_SS_COUNT = 36; // 원본 공유문자열 수
+    // 실제 공유문자열 수를 동적으로 계산 (하드코딩 금지 — 템플릿마다 다름)
+    const ORIG_SS_COUNT = (ssXml.match(/<si>/g) || []).length;
     let addedCount = 0;
 
     function escXml(s){
@@ -3210,38 +3211,33 @@ async function downloadNoticeXlsx(p, seqNo){
     // ── sheet1.xml: 특정 셀 값 교체 ──
     let xml = await zip.file("xl/worksheets/sheet1.xml").async("string");
 
-    // 빈 셀(self-closing) → 공유문자열 셀로 변환
-    // 예: <c r="C3" s="34"/> → <c r="C3" s="34" t="s"><v>36</v></c>
-    function setEmptyToStr(addr, strIdx){
-      const re = new RegExp(`<c r="${addr}" s="(\\d+)"/>`);
-      xml = xml.replace(re, `<c r="${addr}" s="$1" t="s"><v>${strIdx}</v></c>`);
+    // 공유문자열 셀로 강제 교체 (어떤 셀 타입이든 동작)
+    // 스타일 속성(s="N")은 보존하고 값·타입만 교체
+    function _forceStrCell(addr, strIdx){
+      // 스타일 인덱스 추출
+      const sM = xml.match(new RegExp(`<c r="${addr}"[^>]*?s="(\\d+)"`));
+      const sAttr = sM ? ` s="${sM[1]}"` : '';
+      // 셀 전체 범위를 하나의 패턴으로 교체 (self-closing + open/close 양쪽 처리)
+      // self-closing: <c r="X" ... />
+      const reSelf = new RegExp(`<c r="${addr}"[^>]*?\\/>`);
+      // open/close: <c r="X" ...>...</c>  (내부에 줄바꿈 허용)
+      const reOpen = new RegExp(`<c r="${addr}"[^>]*>[\\s\\S]*?<\\/c>`);
+      if(reSelf.test(xml)){
+        xml = xml.replace(reSelf, `<c r="${addr}"${sAttr} t="s"><v>${strIdx}</v></c>`);
+      } else if(reOpen.test(xml)){
+        xml = xml.replace(reOpen, `<c r="${addr}"${sAttr} t="s"><v>${strIdx}</v></c>`);
+      }
     }
 
-    // 기존 공유문자열 셀의 v 값만 교체, t="s" 도 보장
-    // 예: <c r="G15" ... t="s"><v>34</v></c> → <v>40</v>
+    // 빈 셀(self-closing) → 공유문자열 셀로 변환 (기존 동작 유지 + 폴백)
+    // 예: <c r="C3" s="34"/> → <c r="C3" s="34" t="s"><v>36</v></c>
+    function setEmptyToStr(addr, strIdx){
+      _forceStrCell(addr, strIdx);
+    }
+
+    // 기존 셀 값을 공유문자열로 교체 (t="s", 숫자, inlineStr 모두 처리)
     function updateStrCell(addr, strIdx){
-      // t="s" 있는 경우: v 값만 교체
-      const re = new RegExp(`(<c r="${addr}"[^>]*t="s"[^>]*><v>)\\d+(</v></c>)`);
-      if(re.test(xml)){
-        xml = xml.replace(re, `$1${strIdx}$2`);
-      } else {
-        // t="s" 없는 경우: 셀 전체를 강제로 문자열 셀로 교체
-        const re2 = new RegExp(`<c r="${addr}"(\\s[^>]*)?>(?:<f>[^<]*</f>)?<v>[^<]*</v></c>`);
-        const re3 = new RegExp(`<c r="${addr}"(\\s[^>]*)?\/>`);
-        if(re2.test(xml)){
-          xml = xml.replace(re2, (m, attrs) => {
-            const s = (attrs||'').match(/s="(\d+)"/);
-            const sAttr = s ? ` s="${s[1]}"` : '';
-            return `<c r="${addr}"${sAttr} t="s"><v>${strIdx}</v></c>`;
-          });
-        } else if(re3.test(xml)){
-          xml = xml.replace(re3, (m, attrs) => {
-            const s = (attrs||'').match(/s="(\d+)"/);
-            const sAttr = s ? ` s="${s[1]}"` : '';
-            return `<c r="${addr}"${sAttr} t="s"><v>${strIdx}</v></c>`;
-          });
-        }
-      }
+      _forceStrCell(addr, strIdx);
     }
 
     // 숫자 셀의 v 값 교체 (수식 캐시 포함)
