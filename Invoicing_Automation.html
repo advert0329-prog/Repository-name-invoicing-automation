@@ -4568,11 +4568,40 @@ async function fbConnect(cfg){
   const ok = await fbInit(cfg);
   if(!ok){ alert("Firebase 연결 실패. 설정값을 확인해주세요."); return false; }
   fbSaveConfig(cfg);
+
+  // 현재 로컬 데이터 백업
+  const localProjects = JSON.parse(JSON.stringify(projects));
+  const localBills = JSON.parse(JSON.stringify(allBills));
+  const hasLocalData = localProjects.length > 0 || localBills.length > 0;
+
   const loaded = await fbLoad();
   if(loaded){
-    try{ localStorage.setItem(SAVE_KEY, JSON.stringify({projects, allBills})); }catch(_){}
-    renderPage(currentTab);
-    fbShowStatus("☁️ Firebase 연결됨 — 데이터 불러옴", "#16a34a");
+    const hasFirebaseData = projects.length > 0 || allBills.length > 0;
+
+    if(hasLocalData && hasFirebaseData){
+      const choice = confirm(
+        "Firebase에 기존 데이터가 있습니다.\n\n" +
+        "✅ 확인: Firebase 데이터 사용\n" +
+        "❌ 취소: 방금 입력한 데이터를 Firebase에 업로드"
+      );
+      if(!choice){
+        // 로컬 데이터 복원 후 Firebase에 업로드
+        projects = localProjects;
+        allBills = localBills;
+        await fbSave();
+        try{ localStorage.setItem(SAVE_KEY, JSON.stringify({projects, allBills})); }catch(_){}
+        renderPage(currentTab);
+        fbShowStatus("☁️ Firebase 연결됨 — 현재 데이터 업로드 완료", "#16a34a");
+      } else {
+        try{ localStorage.setItem(SAVE_KEY, JSON.stringify({projects, allBills})); }catch(_){}
+        renderPage(currentTab);
+        fbShowStatus("☁️ Firebase 연결됨 — 데이터 불러옴", "#16a34a");
+      }
+    } else {
+      try{ localStorage.setItem(SAVE_KEY, JSON.stringify({projects, allBills})); }catch(_){}
+      renderPage(currentTab);
+      fbShowStatus("☁️ Firebase 연결됨 — 데이터 불러옴", "#16a34a");
+    }
   } else {
     // Firebase에 데이터 없으면 현재 데이터 업로드
     await fbSave();
