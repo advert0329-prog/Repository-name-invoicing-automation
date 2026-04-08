@@ -954,7 +954,7 @@ function renderProjectCard(p){
   const progBadge = prog!==null ? `<span style="font-size:11px;font-weight:700;color:${progColor};background:${progColor}18;padding:1px 7px;border-radius:999px">${prog}%</span>` : "";
   const guideBtn = p.constructionType==="기술자재형" && p.bidConfirmDate && !p.guideSentDate
     ? `<button class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none" onclick="openGuideEmail(${p.id})" title="공사이용안내서 미발송">📋</button>`
-    : (p.bidConfirmDate&&p.contactEmail ? `<button class="btn btn-orange btn-sm" onclick="openNoticeEmail(${p.id})" title="공사안내문">📢</button>` : "");
+    : "";
   const guideFlag = "";
   return `<div class="proj-card">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
