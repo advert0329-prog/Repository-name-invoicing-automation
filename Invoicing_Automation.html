@@ -381,7 +381,16 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f0
     <div class="modal-header"><h3 id="modal-project-title">새 현장 등록</h3><button class="modal-close" onclick="closeModal('modal-project')">✕</button></div>
     <div class="modal-body">
       <div class="field" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-        <div><label>고객사명(낙찰사) *</label><input id="f-customer" type="text" style="width:100%;box-sizing:border-box"/></div>
+        <div>
+          <label>고객사명(낙찰사) *</label>
+          <div style="position:relative">
+            <input id="f-customer" type="text" autocomplete="off"
+              style="width:100%;box-sizing:border-box;border:1px solid #d1d5db;border-radius:8px;padding:9px 12px;font-size:13px;font-family:inherit;outline:none"
+              oninput="filterCustomerMaster(this.value)"
+              onblur="setTimeout(()=>document.getElementById('f-customer-dropdown').style.display='none',200)"/>
+            <div id="f-customer-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #d1d5db;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.1);z-index:300;max-height:200px;overflow-y:auto;margin-top:2px"></div>
+          </div>
+        </div>
         <div><label>아파트명</label><input id="f-apt" type="text" style="width:100%;box-sizing:border-box"/></div>
       </div>
       <div class="field"><label>공사명</label><input id="f-consname" type="text"/></div>
@@ -589,6 +598,37 @@ function loadHiworksDomain(){
 function saveHiworksDomain(domain){
   hiworksDomain = domain.trim();
   localStorage.setItem(HIWORKS_DOMAIN_KEY, hiworksDomain);
+}
+
+// ── n8n 자동 발송 웹훅 ──
+const N8N_WEBHOOK_KEY = "n8n_webhook_url_v1";
+let n8nWebhookUrl = "";
+function loadN8nWebhook(){ n8nWebhookUrl = localStorage.getItem(N8N_WEBHOOK_KEY)||""; }
+function saveN8nWebhook(url){ n8nWebhookUrl = url.trim(); localStorage.setItem(N8N_WEBHOOK_KEY, n8nWebhookUrl); }
+
+// ── 시공사 마스터 ──
+const COMPANY_MASTER_KEY = "company_master_v1";
+const COMPANY_MASTER_DEFAULT = [{"name": "㈜삼인유엔아이", "email": "saminuni@hanmail.net"}, {"name": "금보㈜", "email": "keumbo2022@naver.com"}, {"name": "㈜보라씨엔씨", "email": "borabms@naver.com"}, {"name": "㈜수안건설", "email": "ljy74178@naver.com"}, {"name": "㈜선진기술공사", "email": "sun34800@naver.com"}, {"name": "㈜풍산씨앤씨", "email": "poongs04@daum.net"}, {"name": "동해건업㈜", "email": "dh7269@hanmail.net"}, {"name": "일오삼지앤씨㈜", "email": "153ggc@naver.com"}, {"name": "제이지성신건설㈜", "email": "jgss@jgsungshin.com"}, {"name": "㈜종명건설", "email": "jongm5@naver.com"}, {"name": "㈜다원건설", "email": "dawon3577@naver.com"}, {"name": "㈜가온건설산업", "email": "gaoncpn369@hanmail.net"}, {"name": "㈜도원씨엔씨", "email": "dowon5644@naver.com"}, {"name": "서현건설㈜", "email": "hkskroof@hanmail.net"}, {"name": "㈜국일구조", "email": "kukil3282@naver.com"}, {"name": "㈜대성이앤씨", "email": "desung7111@naver.com"}, {"name": "㈜도은건설", "email": "psg3730@naver.com"}, {"name": "다우산업㈜", "email": "dawooi2@chol.com"}, {"name": "씨에스청산건설㈜", "email": "cs10594@naver.com"}, {"name": "㈜모두건설", "email": "mode9815@naver.com"}, {"name": "성진에스솔루션㈜", "email": "sjin25880@daum.net"}, {"name": "㈜건양산업", "email": "ky7349@hanmail.net"}, {"name": "㈜비전씨앤씨", "email": "gaya12@hanmail.net"}, {"name": "가나랜드㈜", "email": "igana123@naver.com"}, {"name": "㈜창대이엔씨", "email": "changdaienc@naver.com"}, {"name": "㈜정원아이앤디", "email": "donk0523@daum.net"}, {"name": "다인건설㈜", "email": "dain5081@hanmail.net"}, {"name": "㈜주원디엔피", "email": "juwondnp@naver.com"}, {"name": "㈜에이치제이건설", "email": "hj202002@naver.com"}, {"name": "㈜대한진단건설", "email": "daehan0404@nate.com"}, {"name": "진원피앤씨㈜", "email": "jw4799@hanmail.net"}, {"name": "에이치디건설㈜", "email": "hdc7704@naver.com"}, {"name": "㈜예운", "email": "dowoon8016@naver.com"}, {"name": "엘케이개발㈜", "email": "lk2020k@daum.net"}, {"name": "㈜우단건설", "email": "woodan001@hanmail.net"}, {"name": "색채산업개발㈜", "email": "cdd2002@naver.com"}, {"name": "㈜이두건설", "email": "jooidoo@naver.com"}, {"name": "㈜자오건설", "email": "jao8051@naver.com"}, {"name": "㈜이원건설", "email": "iw1144@naver.com"}, {"name": "㈜은화", "email": "ew05@eunwha.com"}, {"name": "진수이앤씨㈜", "email": "jinsu8180@naver.com"}, {"name": "㈜세영건설", "email": "seyoung7889@naver.com"}, {"name": "㈜나원", "email": "nawon515@hanmail.net"}, {"name": "㈜세오엔지니어링", "email": "seoeng22@naver.com"}, {"name": "㈜은성이엔씨", "email": "en7704@naver.com"}, {"name": "성심건설㈜", "email": "sungsim0116@naver.com"}, {"name": "㈜이루미건설", "email": "irumicon2018@naver.com"}, {"name": "㈜명하씨앤씨", "email": "myoungha1@hanmail.net"}, {"name": "㈜태영씨엔씨", "email": "taeyeong2017@naver.com"}, {"name": "신양아이엔지건설㈜", "email": "sypaint04@hanmail.net"}, {"name": "석진건설㈜", "email": "sukjin67@hanmail.net"}, {"name": "㈜정민씨앤씨", "email": "jmcnc2018@naver.com"}, {"name": "㈜예은건설", "email": "yeunconst@daum.net"}, {"name": "㈜미화건설", "email": "miha0615@naver.com"}, {"name": "㈜강명건설", "email": "pland777@hanmail.net"}, {"name": "㈜제이비이엔씨", "email": "jbenc7707@daum.net"}, {"name": "동현이앤씨㈜", "email": "dhenc8885@naver.com"}, {"name": "㈜국제특수건설", "email": "kukjesc@daum.net"}, {"name": "㈜이음건설", "email": "ieum-enc@daum.net"}, {"name": "㈜정문씨앤씨", "email": "119ng@hanmail.net"}, {"name": "㈜백승", "email": "bjbs3677@daum.net"}, {"name": "㈜도방건설", "email": "itnc6009@naver.com"}, {"name": "두레이엔씨㈜", "email": "doore0577@daum.net"}, {"name": "㈜세림산업", "email": "gosu1231@nate.com"}, {"name": "㈜창일건설", "email": "ci2227@naver.com"}, {"name": "㈜디엘씨앤씨", "email": "dl160602@naver.com"}, {"name": "㈜인경건설", "email": "ikcons@hanmail.net"}, {"name": "㈜동심건설", "email": "ce5747@hanmail.net"}, {"name": "삼창엔지니어링㈜", "email": "samchangeng5123@naver.com"}, {"name": "하은건설㈜", "email": "kj5106@hanmail.net"}, {"name": "㈜진성이앤지", "email": "jinsung7475-2@naver.com"}, {"name": "㈜부영씨엔씨", "email": "booyoung458@hanmail.net"}, {"name": "㈜다온", "email": "daondaon2017@naver.com"}, {"name": "㈜삼성리페어링", "email": "ssr4830@naver.com"}, {"name": "삼정아이엔지건설㈜", "email": "samjung2012@hanmail.net"}, {"name": "㈜정광이엔씨", "email": "jg34095400@hanmail.net"}, {"name": "㈜신정이엔씨", "email": "mst413@hanmail.net"}, {"name": "성훈종합건설㈜", "email": "sunghoon5139@naver.com"}, {"name": "㈜성림건설", "email": "slc0472@hanmail.net"}, {"name": "㈜금환기업", "email": "ghwan7617@naver.com"}, {"name": "㈜영성조경", "email": "return10@naver.com"}, {"name": "조양도장산업㈜", "email": "uhms2002@nate.com"}, {"name": "㈜보고넷", "email": "bogo04@bogonet.com"}, {"name": "초담건설㈜", "email": "chodam2018@hanmail.net"}, {"name": "알지씨앤씨㈜", "email": "rg5545@naver.com"}, {"name": "㈜진웅건설", "email": "sgy0930@naver.com"}, {"name": "현대도건㈜", "email": "hdpnc@hdpnc.co.kr"}, {"name": "엠에스이앤지㈜", "email": "mseng602@naver.com"}, {"name": "㈜파가니건설", "email": "xpzmshtm@hanmail.net"}, {"name": "신한건설산업㈜", "email": "shinhan093@hanmail.net"}, {"name": "삼원건설㈜", "email": "samwon9192@naver.com"}, {"name": "㈜우영엘디아이", "email": "wy0383@nate.com"}, {"name": "㈜수산기업", "email": "susan2754@naver.com"}, {"name": "㈜지호건설", "email": "jihocons@naver.com"}, {"name": "혜성씨앤씨㈜", "email": "hscnc2024@naver.com"}, {"name": "㈜대길산업개발", "email": "daegil7707@naver.com"}, {"name": "㈜석민이앤씨", "email": "119sukminc@naver.com"}, {"name": "삼우건설㈜", "email": "samwoo2019@hanmail.net"}, {"name": "㈜지앤필드종합건설", "email": "wdcnc@hanmail.net"}, {"name": "㈜효덕산업", "email": "tpaud2015@daum.net"}, {"name": "㈜유진에코", "email": "eugeneeco@hanmail.net"}, {"name": "㈜미르건축", "email": "mir1995@naver.com"}, {"name": "㈜아우리", "email": "auriok@hanmail.net"}, {"name": "㈜대길건설", "email": "daegilconst@hanmail.net"}, {"name": "㈜루아이앤씨", "email": "luaenc@daum.net"}, {"name": "경기이앤에스㈜", "email": "kgens23@naver.com"}, {"name": "새로이건설㈜", "email": "seroi22@daum.net"}, {"name": "천강건설㈜", "email": "1000kangk@naver.com"}, {"name": "코지건설㈜", "email": "cozy2024@naver.com"}, {"name": "(주)모아씨앤에스", "email": "moa0477@daum.net"}, {"name": "드림종합건설㈜", "email": "d5789743@naver.com"}, {"name": "신화건설㈜", "email": "shico21@hanmail.net"}, {"name": "퍼펙트방수", "email": "smsky3433@kakao.com"}, {"name": "㈜세원산업개발", "email": "sewon301@hanmail.net"}, {"name": "대표건설㈜", "email": "daepyo04@naver.com"}, {"name": "한별이엔씨㈜", "email": "hanbyeolenc1010@naver.com"}, {"name": "㈜두영이앤씨", "email": "doyoung_enc@naver.com"}, {"name": "㈜보람씨앤씨", "email": "gkr3641@naver.com"}, {"name": "여름건설㈜", "email": "summertime888@naver.com"}, {"name": "㈜태영건설", "email": "tyc356@hanmail.net"}, {"name": "㈜바름피앤에스", "email": "bareumpns@daum.net"}, {"name": "㈜무한하우징", "email": "mhhousing7777@naver.com"}, {"name": "㈜에스엠에이", "email": "sma8244@naver.com"}, {"name": "동일산건㈜", "email": "5796488@daum.net"}, {"name": "㈜로운건설", "email": "loun999@daum.net"}, {"name": "㈜세원", "email": "ups0770@naver.com"}, {"name": "㈜은천", "email": "xyz3232@naver.com"}, {"name": "㈜수주건설", "email": "soojooyyn@naver.com"}, {"name": "㈜미성건설", "email": "misung3934@naver.com"}, {"name": "대명이엔씨㈜", "email": "dmenc2024@naver.com"}, {"name": "(주)청람건설", "email": "chung2019@daum.net"}, {"name": "SH㈜", "email": "s671125@hanmail.net"}, {"name": "(주)채도건설", "email": "chaedo8887@naver.com"}, {"name": "상미건설㈜", "email": "sangmi2470@naver.com"}, {"name": "㈜적산건설", "email": "juek99@hanmail.net"}, {"name": "제일특수케미칼㈜", "email": "jeilspc@hanmail.net"}, {"name": "(주)에이플러스건설", "email": "apluscons@naver.com"}, {"name": "우리방재건설㈜", "email": "jbw3876@hanmail.net"}, {"name": "(주)일진건설", "email": "pak6563@hanmail.net"}, {"name": "㈜위즈페인팅", "email": "wonjun7734@hanmail.net"}, {"name": "㈜케이탑건설", "email": "ktop0420@naver.com"}, {"name": "㈜기림이앤씨", "email": "girim250@naver.com"}, {"name": "㈜한빛", "email": "hd7801@hanmail.net"}, {"name": "㈜덕일산업", "email": "duckil1998@daum.net"}, {"name": "㈜다수건설", "email": "dasu2013@naver.com"}, {"name": "㈜서린건설", "email": "srin25@naver.com"}, {"name": "㈜조광피엔텍", "email": "ckp7709@naver.com"}, {"name": "㈜한림제코", "email": "hanlimgeco@naver.com"}, {"name": "㈜레인보우테크", "email": "rainbowtech@daum.net"}, {"name": "태형산업개발", "email": "taehyeong7@hanmail.net"}, {"name": "명서건설㈜", "email": "msc5121@daum.net"}, {"name": "㈜에스에스건설", "email": "ss00938@hanmail.net"}, {"name": "㈜대림도장", "email": "dlwlsdud6667@naver.com"}, {"name": "㈜탱크마스타", "email": "tminc@hanmail.net"}, {"name": "K.B건설㈜", "email": "kb9719@hanmail.net"}, {"name": "㈜삼흥티에스건설", "email": "samhd2007@daum.net"}, {"name": "㈜에이원건설", "email": "a1con@naver.com"}, {"name": "㈜대성건업", "email": "tgsc115@hanmail.net"}, {"name": "㈜신창건업", "email": "vex02@naver.com"}, {"name": "하진건설㈜", "email": "hajin2815700@daum.net"}, {"name": "㈜방수존건설", "email": "rbcp@naver.com"}, {"name": "㈜예화건설", "email": "hwa6867@hanmail.net"}, {"name": "㈜제이제이ENG", "email": "mymad3@naver.com"}, {"name": "건진개발㈜", "email": "kjbs6477@hanmail.net"}, {"name": "㈜동건씨앤씨", "email": "cnc3203@naver.com"}, {"name": "대진건설㈜", "email": "daejin2100@daum.net"}, {"name": "덕산기업", "email": "ytreqwe@daum.net"}, {"name": "명가종합건설㈜", "email": "mkjk503@naver.com"}, {"name": "㈜동성로라", "email": "dsroll@hanmail.net"}, {"name": "㈜흥산건설산업", "email": "heungsan1997@hanmail.net"}, {"name": "㈜삼강기업", "email": "5samkang@hanmail.net"}, {"name": "㈜경성기업", "email": "kse7845@hanmail.net"}, {"name": "청학건설㈜", "email": "ch290@daum.net"}, {"name": "㈜대안이엔씨", "email": "eunkbmc@daum.net"}, {"name": "㈜케이원씨앤씨", "email": "k1cnc@naver.com"}, {"name": "삼흥환경건설㈜", "email": "samh94@daum.net"}, {"name": "㈜엠지건설", "email": "mgmg0479@naver.com"}, {"name": "㈜도경이엔지", "email": "dkeng3577@hanmail.net"}, {"name": "㈜풍전이엔씨", "email": "pungjeon0411@naver.com"}, {"name": "효원이엔씨㈜", "email": "hyowon-2015@naver.com"}, {"name": "㈜제이에이치건설", "email": "jh.8836@hanmail.net"}, {"name": "㈜썬시카방수", "email": "sunsika@naver.com"}, {"name": "동양에폭시㈜", "email": "dongyangepoxy@daum.net"}, {"name": "강남이앤알㈜", "email": "gang1910@naver.com"}, {"name": "㈜경동하우징", "email": "kdyss1@daum.net"}, {"name": "㈜덕경", "email": "dkc2020@daum.net"}, {"name": "㈜유일건설", "email": "youill1004@naver.com"}, {"name": "태동건설", "email": "td0700@naver.com"}, {"name": "대경건설㈜", "email": "dk8165@naver.com"}, {"name": "㈜금강건설공사", "email": "goldsuk6480@naver.com"}, {"name": "제네시스광고기획", "email": "3669290@gmail.com"}, {"name": "(주)지온산업", "email": "zionind@naver.com"}, {"name": "(주)송주종합건설", "email": "songju0180@naver.com"}, {"name": "㈜건인씨엔알", "email": "guninbusan@hanmail.net"}, {"name": "건영이앤씨㈜", "email": "kyenc7979@daum.net"}, {"name": "광일포장건설㈜", "email": "dam2713@naver.com"}, {"name": "(주)대로건설", "email": "daero0447@naver.com"}, {"name": "희민건설㈜", "email": "heemin5233@hanmail.net"}, {"name": "㈜경하이앤씨", "email": "khenc0830@naver.com"}, {"name": "덕수건설㈜", "email": "ds7804@hanmail.net"}, {"name": "㈜효성씨앤씨", "email": "hyosungcc@naver.com"}, {"name": "영성건설㈜", "email": "a3623741@naver.com"}, {"name": "㈜예신건설", "email": "james0593@naver.com"}, {"name": "㈜청우엔지니어링", "email": "cweng0117@naver.com"}, {"name": "(주)지건씨앤씨", "email": "gkcnc2022@naver.com"}, {"name": "㈜대신엘엔씨건설", "email": "dsland81@naver.com"}, {"name": "㈜탑이앤씨", "email": "topenc7@naver.com"}, {"name": "도시이앤씨㈜", "email": "dosi2026@naver.com"}, {"name": "㈜주태건설", "email": "jootae@hanmail.net"}, {"name": "자연담은건설㈜", "email": "jm0489@naver.com"}, {"name": "명가건설(유)", "email": "mga8083@naver.com"}, {"name": "㈜도경", "email": "dk03332@naver.com"}, {"name": "㈜대승이앤씨", "email": "daeseung2024@naver.com"}, {"name": "㈜예랑건설", "email": "yerang2025@naver.com"}, {"name": "㈜일성기업", "email": "ilsung7704@naver.com"}, {"name": "㈜디아이산업", "email": "edward1080@naver.com"}, {"name": "㈜한국전문건설", "email": "hk-1992@naver.com"}, {"name": "㈜에이피티건설", "email": "apt-enc@naver.com"}, {"name": "㈜대륜씨엔씨", "email": "shhsmr1220@gmail.com"}, {"name": "㈜케이씨건설", "email": "kumchun99@naver.com"}, {"name": "대흥씨앤씨㈜", "email": "dhcnc1201@naver.com"}, {"name": "㈜태강건설", "email": "xorkd0424@naver.com"}, {"name": "베스트건설㈜", "email": "awesome152@naver.com"}, {"name": "㈜아트텍", "email": "arttech2018@daum.net"}, {"name": "㈜장수씨앤씨", "email": "4181819@naver.com"}, {"name": "㈜네오텍건설", "email": "neotec2005@naver.com"}, {"name": "㈜헤븐", "email": "js50946@naver.com"}, {"name": "석암산업㈜", "email": "sa0868@naver.com"}, {"name": "㈜더베스트 이앤비", "email": "thebest_enb@naver.com"}, {"name": "경창산업개발㈜", "email": "kc00436@daum.net"}, {"name": "쌍용조경㈜", "email": "ssyongls@hanmail.net"}, {"name": "㈜유복건설", "email": "yy03297@naver.com"}, {"name": "나노지음㈜", "email": "nanozium@naver.com"}, {"name": "㈜더자람", "email": "the7475-2@naver.com"}, {"name": "㈜어썸코퍼레이션", "email": "awesome152@naver.com"}, {"name": "㈜더세움", "email": "thesewoom@naver.com"}, {"name": "㈜삼정엔지니어링", "email": "sjeng051@daum.net"}, {"name": "㈜대신하우징", "email": "han-kmj3993@daum.net"}, {"name": "대하씨엔디㈜", "email": "dh76426@nate.com"}, {"name": "㈜다산종합건설", "email": "dasanctc@naver.com"}, {"name": "(주)세원티엠", "email": "sw7475-2@naver.com"}, {"name": "㈜토형건설", "email": "7768th@hanmail.net"}, {"name": "삼호종합건설(주)", "email": "samho2011@naver.com"}, {"name": "㈜유광씨앤씨", "email": "ukpaint1@naver.com"}, {"name": "와이티 파트너스㈜", "email": "ytcctv@naver.com"}, {"name": "㈜창도건설", "email": "cd0021@naver.com"}, {"name": "㈜피앤텍이엔지", "email": "pntech2012@daum.net"}, {"name": "더이스트코리아㈜", "email": "eastkorea04@naver.com"}, {"name": "㈜청명이앤디", "email": "cmend051@daum.net"}, {"name": "㈜미사건설", "email": "misa8204@naver.com"}, {"name": "유현건설㈜", "email": "hk0477@daum.net"}, {"name": "㈜두루빌엔지니어링", "email": "dooroo9792@naver.com"}, {"name": "㈜스타건설", "email": "starcon2022@naver.com"}, {"name": "㈜현지이앤씨", "email": "6253573@naver.com"}, {"name": "극동에이앤씨㈜", "email": "kdanc03@naver.com"}, {"name": "하린이앤씨㈜", "email": "harinenc@naver.com"}, {"name": "㈜부성도장", "email": "bs77045@naver.com"}, {"name": "㈜청익", "email": "ci8089@hanmail.net"}, {"name": "㈜유니드건설", "email": "uneed1229@naver.com"}, {"name": "㈜본이앤씨", "email": "bon2023@naver.com"}, {"name": "㈜태온산업개발", "email": "taeon202510@naver.com"}];
+let companyMaster = [];
+
+function loadCompanyMaster(){
+  try{
+    const raw = localStorage.getItem(COMPANY_MASTER_KEY);
+    if(raw){ companyMaster = JSON.parse(raw); }
+    else{ companyMaster = [...COMPANY_MASTER_DEFAULT]; saveCompanyMaster(); }
+  }catch(e){ companyMaster = [...COMPANY_MASTER_DEFAULT]; }
+}
+function saveCompanyMaster(){
+  try{ localStorage.setItem(COMPANY_MASTER_KEY, JSON.stringify(companyMaster)); }catch(e){}
+  if(_fbRef) fbSave();
+}
+function companyMasterSearch(val){
+  if(!val||val.length<1) return [];
+  const q = val.replace(/[㈜(주)(유)\s]/g,'').toLowerCase();
+  return companyMaster.filter(c=>{
+    const n = c.name.replace(/[㈜(주)(유)\s]/g,'').toLowerCase();
+    return n.includes(q);
+  }).slice(0,8);
 }
 
 function buildHiworksUrl(to, subject, body){
@@ -912,10 +952,10 @@ function renderProjectCard(p){
   const prog = calcProgress(p);
   const progColor = prog===null?"":prog>=100?"#22c55e":prog>=60?"#4338ca":"#f97316";
   const progBadge = prog!==null ? `<span style="font-size:11px;font-weight:700;color:${progColor};background:${progColor}18;padding:1px 7px;border-radius:999px">${prog}%</span>` : "";
-  const guideBtn = p.constructionType==="기술자재형" && p.bidConfirmDate && p.contactEmail
-    ? `<button class="btn btn-sm" style="background:${p.guideSentDate?"#f3e8ff":"#7c3aed"};color:${p.guideSentDate?"#7c3aed":"#fff"};border:${p.guideSentDate?"1px solid #d8b4fe":"none"}" onclick="openGuideEmail(${p.id})" title="${p.guideSentDate?"발송완료: "+p.guideSentDate:"공사이용안내서 미발송"}">${p.guideSentDate?"✅":"📋"}</button>`
+  const guideBtn = p.constructionType==="기술자재형" && p.bidConfirmDate && !p.guideSentDate
+    ? `<button class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none" onclick="openGuideEmail(${p.id})" title="공사이용안내서 미발송">📋</button>`
     : (p.bidConfirmDate&&p.contactEmail ? `<button class="btn btn-orange btn-sm" onclick="openNoticeEmail(${p.id})" title="공사안내문">📢</button>` : "");
-  const guideFlag = p.constructionType==="기술자재형" && !p.guideSentDate ? `<span title="공사이용안내문 미발송" style="font-size:13px;line-height:1">🚩</span>` : "";
+  const guideFlag = "";
   return `<div class="proj-card">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
       <div style="flex:1;min-width:0">
@@ -1010,7 +1050,7 @@ function renderProjectsList(){
         <th style="text-align:right">낙찰가</th><th>준공일</th><th>상태</th><th>안내문</th><th>액션</th><th>삭제</th>
       </tr></thead><tbody>`;
       paged.forEach((p,i)=>{
-        const flag = p.constructionType==='기술자재형'&&!p.guideSentDate ? '🚩 ' : '';
+        const flag = '';
         html+=`<tr>
           <td><span style="color:${typeColors[p.constructionType]||'#374151'};font-weight:600;font-size:11px">${p.constructionType||'-'}</span></td>
           <td>${p.category||'-'}</td>
@@ -1019,7 +1059,7 @@ function renderProjectsList(){
           <td style="text-align:right">${p.bidPrice?fmtNum(p.bidPrice):'-'}</td>
           <td>${p.expectedCompletionDate||'-'}</td>
           <td><span style="color:${statColors[p.status]||'#374151'};font-weight:600;font-size:11px">${p.status||'-'}</span></td>
-          <td style="text-align:center">${p.constructionType==='기술자재형'?(p.guideSentDate?'✅':'🚩'):'-'}</td>
+          <td style="text-align:center">${p.constructionType==='기술자재형'?(p.guideSentDate?'✅':'-'):'-'}</td>
           <td><button class="btn btn-gray btn-sm" onclick="openEditProject(${p.id})" style="padding:3px 7px">✏️</button></td>
           <td><button class="btn btn-red btn-sm" onclick="deleteProject(${p.id})" style="padding:3px 7px">🗑️</button></td>
         </tr>`;
@@ -2819,9 +2859,42 @@ function downloadCompletedExcel(){
 }
 
 // ── 설정 탭 ──
+function renderCompanyMasterList(){
+  const el = document.getElementById('cm-list');
+  if(!el) return;
+  const q = (document.getElementById('cm-search')||{}).value||'';
+  const list = q ? companyMaster.filter(c=>c.name.includes(q)||c.email.includes(q)) : companyMaster;
+  if(!list.length){ el.innerHTML='<div style="text-align:center;padding:12px;color:#9ca3af;font-size:12px">검색 결과 없음</div>'; return; }
+  el.innerHTML = list.map((c,i)=>{
+    const realIdx = companyMaster.indexOf(c);
+    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f9fafb;font-size:12px">
+      <span style="flex:1;font-weight:600;color:#374151">${c.name}</span>
+      <span style="flex:1;color:#6b7280">${c.email}</span>
+      <button class="btn btn-red btn-sm" onclick="deleteCompanyMaster(${realIdx})">삭제</button>
+    </div>`;
+  }).join('');
+}
+function addCompanyMaster(){
+  const name = (document.getElementById('cm-new-name').value||'').trim();
+  const email = (document.getElementById('cm-new-email').value||'').trim();
+  if(!name||!email){ alert('회사명과 이메일을 모두 입력하세요.'); return; }
+  companyMaster.unshift({name, email});
+  saveCompanyMaster();
+  document.getElementById('cm-new-name').value='';
+  document.getElementById('cm-new-email').value='';
+  renderSettings();
+}
+function deleteCompanyMaster(idx){
+  if(!confirm(`"${companyMaster[idx].name}"을(를) 삭제할까요?`)) return;
+  companyMaster.splice(idx,1);
+  saveCompanyMaster();
+  renderSettings();
+}
+
 function renderSettings(){
   document.getElementById("page-8").innerHTML = buildSettingsHtml();
   renderFbSection();
+  renderCompanyMasterList();
 }
 
 function buildSettingsHtml(){
@@ -2881,24 +2954,49 @@ function buildSettingsHtml(){
   return `
   <p class="sec-title">⚙️ 설정</p>
 
-  <!-- 하이웍스 메일 설정 -->
+  <!-- n8n 자동 발송 설정 -->
   <div class="card" style="margin-bottom:16px">
     <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:10px;display:flex;align-items:center;gap:6px">
-      ✉️ 하이웍스 메일 설정
+      ⚡ n8n 자동 발송 설정
+      <span style="font-size:11px;font-weight:400;color:#9ca3af">(하이웍스 SMTP 자동발송)</span>
     </div>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <span style="font-size:12px;color:#6b7280;white-space:nowrap">mail.office.hiworks.com/</span>
-      <input type="text" id="hiworks-domain-input"
-        value="${hiworksDomain}"
-        placeholder="회사도메인 (예: netformrnd.com)"
-        style="flex:1;min-width:140px;border:1px solid #d1d5db;border-radius:8px;padding:8px 12px;font-size:13px;font-family:inherit;outline:none"/>
-      <span style="font-size:12px;color:#6b7280;white-space:nowrap">/mail/webmail/m_write</span>
-      <button class="btn btn-primary btn-sm" onclick="(function(){const v=document.getElementById('hiworks-domain-input').value.trim();if(!v){alert('도메인을 입력해주세요');return;}saveHiworksDomain(v);alert('✅ 저장되었습니다.');})()">저장</button>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+      <input type="text" id="n8n-webhook-input"
+        value="${n8nWebhookUrl}"
+        placeholder="https://your-n8n.com/webhook/xxxx"
+        style="flex:1;min-width:200px;border:1px solid #d1d5db;border-radius:8px;padding:8px 12px;font-size:13px;font-family:inherit;outline:none"/>
+      <button class="btn btn-primary btn-sm" onclick="(function(){
+        const v=document.getElementById('n8n-webhook-input').value.trim();
+        saveN8nWebhook(v);
+        alert(v ? '✅ 저장됐습니다. 이제 하이웍스 선택 시 자동 발송됩니다.' : '웹훅 URL이 삭제됐습니다.');
+        renderSettings();
+      })()">저장</button>
     </div>
-    <div style="font-size:11px;color:#9ca3af;margin-top:7px">
-      💡 하이웍스 로그인 후 주소창에서 확인: <code style="background:#f3f4f6;padding:2px 5px;border-radius:4px">mail.office.hiworks.com/<strong style="color:#374151">여기가 도메인</strong>/...</code>
+    <div style="font-size:11px;color:#9ca3af;line-height:1.8">
+      💡 n8n 워크플로우에서 <b>Webhook 노드</b> → <b>하이웍스 SMTP 노드</b>로 구성 후 웹훅 URL을 입력하세요.<br>
+      &nbsp;&nbsp;&nbsp;앱에서 전달되는 데이터: <code style="background:#f3f4f6;padding:1px 5px;border-radius:4px">{ to, subject, body }</code>
     </div>
-    ${hiworksDomain ? `<div style="font-size:12px;color:#16a34a;margin-top:6px">✅ 현재 도메인: <strong>${hiworksDomain}</strong></div>` : `<div style="font-size:12px;color:#dc2626;margin-top:6px">⚠️ 도메인 미설정 — 하이웍스 메일 버튼이 작동하지 않습니다.</div>`}
+    ${n8nWebhookUrl
+      ? `<div style="font-size:12px;color:#16a34a;margin-top:8px;padding:6px 10px;background:#f0fdf4;border-radius:6px">✅ 자동 발송 활성화 — <span style="color:#374151">${n8nWebhookUrl}</span></div>`
+      : `<div style="font-size:12px;color:#f97316;margin-top:8px;padding:6px 10px;background:#fff7ed;border-radius:6px">⚠️ 미설정 — 하이웍스 선택 시 클립보드 복사 방식으로 동작합니다.</div>`}
+  </div>
+
+  <!-- 시공사 마스터 -->
+  <div class="card" style="margin-bottom:16px">
+    <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:10px;display:flex;align-items:center;gap:6px">
+      🏢 시공사 마스터 <span style="font-size:11px;font-weight:400;color:#9ca3af">(현장 등록 시 고객사명 자동완성)</span>
+      <span style="margin-left:auto;font-size:12px;color:var(--indigo);font-weight:600">${companyMaster.length}개</span>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <input type="text" id="cm-search" placeholder="🔍 시공사명 검색..." oninput="renderCompanyMasterList()"
+        style="flex:1;border:1px solid #d1d5db;border-radius:8px;padding:7px 12px;font-size:13px;font-family:inherit;outline:none"/>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #f3f4f6">
+      <input type="text" id="cm-new-name" placeholder="회사명" style="flex:1;border:1px solid #d1d5db;border-radius:8px;padding:7px 12px;font-size:13px;font-family:inherit;outline:none"/>
+      <input type="email" id="cm-new-email" placeholder="이메일" style="flex:1;border:1px solid #d1d5db;border-radius:8px;padding:7px 12px;font-size:13px;font-family:inherit;outline:none"/>
+      <button class="btn btn-primary btn-sm" onclick="addCompanyMaster()">추가</button>
+    </div>
+    <div id="cm-list" style="max-height:300px;overflow-y:auto"></div>
   </div>
 
   <!-- 공종별 안내문 PDF 관리 -->
@@ -3302,7 +3400,7 @@ async function downloadNoticeXlsx(p, seqNo){
     const url = URL.createObjectURL(blob);
     const a   = document.createElement("a");
     a.href     = url;
-    a.download = `공사이용안내서_공문_${p.aptName||p.customerName||"현장"}_${yyyy}${mm}${dd}.xlsx`;
+    a.download = `POUR공법 기술ㆍ자재형 공사 이용관련 안내서_${p.aptName||"현장"}_${p.customerName||""}.xlsx`;
     document.body.appendChild(a); a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
@@ -3587,6 +3685,26 @@ function openModal(id){document.getElementById(id).classList.add("open");}
 function closeModal(id){document.getElementById(id).classList.remove("open");}
 
 // ── 프로젝트 등록/수정 ──
+function filterCustomerMaster(val){
+  const dropdown = document.getElementById('f-customer-dropdown');
+  if(!dropdown) return;
+  const results = companyMasterSearch(val);
+  if(!results.length){ dropdown.style.display='none'; return; }
+  dropdown.innerHTML = results.map(c=>`
+    <div onclick="selectCustomerMaster('${c.name.replace(/'/g,"\\'")}','${c.email}')"
+      style="padding:9px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid #f3f4f6;display:flex;justify-content:space-between;align-items:center"
+      onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background=''">
+      <span style="font-weight:600">${c.name}</span>
+      <span style="font-size:11px;color:#9ca3af">${c.email}</span>
+    </div>`).join('');
+  dropdown.style.display='block';
+}
+function selectCustomerMaster(name, email){
+  document.getElementById('f-customer').value = name;
+  document.getElementById('f-email').value = email;
+  document.getElementById('f-customer-dropdown').style.display='none';
+}
+
 function filterCategoryDropdown(val){
   const dropdown = document.getElementById("f-category-dropdown");
   if(!dropdown) return;
@@ -4040,6 +4158,11 @@ POUR공법 홈페이지 : https://www.pour1.net/
 POUR솔루션 홈페이지 : https://www.poursolution.net/
 POUR스토어 홈페이지 : https://www.pourstore.net/`;
 
+  // 이메일 자동매칭: contactEmail 없으면 마스터에서 찾기
+  if(!p.contactEmail){
+    const found = companyMaster.find(c=>c.name===p.customerName);
+    if(found) p.contactEmail = found.email;
+  }
   document.getElementById("notice-body").innerHTML = buildGuideEmailForm(p, subject, body);
   openModal("modal-notice");
 }
@@ -4115,23 +4238,33 @@ function sendGuideEmail(){
   const body    = document.getElementById("e-body").value;
   if(!to) return alert("받는 사람 이메일을 입력해주세요.");
 
-  const hw = buildHiworksUrl(to, subject, body);
-  if(!hw) return;
-  window.open(hw, "_blank");
+  // 제목+본문 클립보드 복사
+  const clipText = `[제목] ${subject}\n\n${body}`;
+  navigator.clipboard.writeText(clipText).catch(()=>{});
 
-  // 발송 기록 저장
+  // 하이웍스 열기
+  window.open(`https://mails.office.hiworks.com/list/inbox`, "_blank");
+
+  // 발송일 기록
   if(selProjectId){
     const p = projects.find(x=>x.id===selProjectId);
     if(p){ p.guideSentDate = todayStr(); saveData(); }
   }
+
   document.getElementById("notice-body").innerHTML=`
     <div class="email-success">
-      <div class="icon">✅</div>
-      <p style="font-weight:700;margin-bottom:6px">하이웍스 메일이 열렸습니다</p>
-      <p style="font-size:13px;color:#6b7280;margin-bottom:10px">
-        위에서 다운로드한 PDF 2개를 첨부한 뒤<br><strong>보내기</strong>를 눌러 발송을 완료해 주세요.
-      </p>
-      <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px;font-size:12px;color:#15803d;margin-bottom:16px">
+      <div class="icon">📋</div>
+      <p style="font-weight:700;margin-bottom:6px">클립보드에 복사됐습니다</p>
+      <p style="font-size:13px;color:#6b7280;margin-bottom:10px">하이웍스 메일 쓰기 창에 <b>Ctrl+V</b> 로 붙여넣기 후 PDF를 첨부하세요.</p>
+      <div style="background:#f3f4f6;border-radius:8px;padding:10px 14px;font-size:12px;text-align:left;margin-bottom:10px;line-height:1.7">
+        <div><span style="color:#9ca3af">받는 사람</span> &nbsp;<b>${escHtml(to)}</b></div>
+        <div><span style="color:#9ca3af">제&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;목</span> &nbsp;<b>${escHtml(subject)}</b></div>
+      </div>
+      <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:8px;font-size:12px;color:#92400e;margin-bottom:10px">
+        📎 위에서 다운로드한 PDF 2개를 첨부 후 보내기를 눌러주세요.<br>
+        &nbsp;&nbsp;&nbsp;① 공문.pdf &nbsp;&nbsp; ② 공종안내문+로드맵 합본.pdf
+      </div>
+      <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px;font-size:12px;color:#15803d;margin-bottom:14px">
         📌 발송일 (${todayStr()})이 시스템에 자동 기록되었습니다.
       </div>
       <button class="btn btn-primary" onclick="closeModal('modal-notice');renderPage(currentTab)">확인</button>
@@ -4210,27 +4343,78 @@ function openEmailModal(to,subject,body){
   openModal("modal-email");
 }
 
-function sendEmail(){
+async function sendEmail(){
   const to=document.getElementById("e-to").value;
   const subject=document.getElementById("e-subject").value;
   const body=document.getElementById("e-body").value;
   const clientRadio = document.querySelector('input[name="mail-client"]:checked');
   const client = clientRadio ? clientRadio.value : "hiworks";
+
   if(client==="hiworks"){
-    const hwUrl = buildHiworksUrl(to, subject, body);
-    if(hwUrl) window.open(hwUrl, "_blank"); else return;
+    // ── n8n 웹훅 자동발송 ──
+    if(n8nWebhookUrl){
+      document.getElementById("email-body").innerHTML=`<div class="email-success"><div class="icon" style="font-size:36px">⏳</div><p style="font-weight:700;margin-top:8px">발송 중...</p></div>`;
+      try{
+        const res = await fetch(n8nWebhookUrl, {
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({to, subject, body})
+        });
+        if(!res.ok) throw new Error("HTTP "+res.status);
+        if(selBillId){const b=allBills.find(x=>x.id===selBillId);if(b)b.emailSentDate=todayStr();saveData();}
+        document.getElementById("email-body").innerHTML=`
+          <div class="email-success">
+            <div class="icon">✅</div>
+            <p style="font-weight:700;margin-bottom:6px">메일이 자동 발송됐습니다</p>
+            <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 14px;font-size:12px;text-align:left;margin-bottom:16px;line-height:1.7">
+              <div><span style="color:#9ca3af">받는 사람</span> &nbsp;<b>${escHtml(to)}</b></div>
+              <div><span style="color:#9ca3af">제&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;목</span> &nbsp;<b>${escHtml(subject)}</b></div>
+            </div>
+            <button class="btn btn-primary" onclick="closeModal('modal-email');renderPage(currentTab)">확인</button>
+          </div>`;
+      }catch(err){
+        document.getElementById("email-body").innerHTML=`
+          <div class="email-success">
+            <div class="icon">❌</div>
+            <p style="font-weight:700;margin-bottom:6px;color:#dc2626">발송 실패</p>
+            <p style="font-size:12px;color:#6b7280;margin-bottom:12px">${err.message}<br>n8n 웹훅 URL 또는 워크플로우를 확인해주세요.</p>
+            <button class="btn btn-gray" onclick="closeModal('modal-email')">닫기</button>
+          </div>`;
+      }
+      return;
+    }
+    // ── n8n 미설정 시 클립보드 폴백 ──
+    const clipText = `[제목] ${subject}\n\n${body}`;
+    navigator.clipboard.writeText(clipText).catch(()=>{});
+    window.open(`https://mails.office.hiworks.com/list/inbox`, "_blank");
+    if(selBillId){const b=allBills.find(x=>x.id===selBillId);if(b)b.emailSentDate=todayStr();}
+    document.getElementById("email-body").innerHTML=`
+      <div class="email-success">
+        <div class="icon">📋</div>
+        <p style="font-weight:700;margin-bottom:6px">클립보드에 복사됐습니다</p>
+        <p style="font-size:13px;color:#6b7280;margin-bottom:10px">하이웍스 메일 쓰기 창에 <b>Ctrl+V</b> 로 붙여넣기 하세요.</p>
+        <div style="background:#f3f4f6;border-radius:8px;padding:10px 14px;font-size:12px;text-align:left;margin-bottom:16px;line-height:1.7">
+          <div><span style="color:#9ca3af">받는 사람</span> &nbsp;<b>${escHtml(to)||"(미입력)"}</b></div>
+          <div><span style="color:#9ca3af">제&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;목</span> &nbsp;<b>${escHtml(subject)}</b></div>
+        </div>
+        <p style="font-size:11px;color:#f97316">⚙️ 설정 탭에서 n8n 웹훅 URL을 등록하면 자동 발송됩니다.</p>
+        <button class="btn btn-primary" onclick="closeModal('modal-email');renderPage(currentTab)">확인</button>
+      </div>`;
   } else if(client==="gmail"){
     window.open(`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(to)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`,"_blank");
+    if(selBillId){const b=allBills.find(x=>x.id===selBillId);if(b)b.emailSentDate=todayStr();}
+    document.getElementById("email-body").innerHTML=`<div class="email-success"><div class="icon">✅</div><p style="font-weight:700;margin-bottom:6px">Gmail이 열렸습니다</p><p style="font-size:13px;color:#6b7280;margin-bottom:16px">내용 확인 후 보내기를 눌러 발송을 완료해 주세요.</p><button class="btn btn-primary" onclick="closeModal('modal-email');renderPage(currentTab)">확인</button></div>`;
   } else {
     window.open(`mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`);
+    if(selBillId){const b=allBills.find(x=>x.id===selBillId);if(b)b.emailSentDate=todayStr();}
+    document.getElementById("email-body").innerHTML=`<div class="email-success"><div class="icon">✅</div><p style="font-weight:700;margin-bottom:6px">메일앱이 열렸습니다</p><p style="font-size:13px;color:#6b7280;margin-bottom:16px">내용 확인 후 보내기를 눌러 발송을 완료해 주세요.</p><button class="btn btn-primary" onclick="closeModal('modal-email');renderPage(currentTab)">확인</button></div>`;
   }
-  if(selBillId){const b=allBills.find(x=>x.id===selBillId);if(b)b.emailSentDate=todayStr();}
-  document.getElementById("email-body").innerHTML=`<div class="email-success"><div class="icon">✅</div><p style="font-weight:700;margin-bottom:6px">메일이 열렸습니다</p><p style="font-size:13px;color:#6b7280;margin-bottom:16px">내용 확인 후 보내기를 눌러 발송을 완료해 주세요.</p><button class="btn btn-primary" onclick="closeModal('modal-email');renderPage(currentTab)">확인</button></div>`;
 }
 
 function openDunningEmail(bid){
   const b=allBills.find(x=>x.id===bid);selBillId=bid;
-  openEmailModal(b.contactEmail||"",`[미수금 안내] ${b.aptName||""} ${b.type} 미납`,`안녕하세요, ${b.customerName} 담당자님.\n\n${b.aptName||""} ${b.constructionName||""} ${b.type} ${fmtNum(b.amount)}이(가) 미납 상태입니다.\n\n청구 발행일: ${b.issuedDate}\n청구 금액: ${fmtNum(b.amount)}\n\n빠른 처리 부탁드립니다.\n감사합니다.`);
+  const _dTo = b.contactEmail || (companyMaster.find(c=>c.name===b.customerName)||{}).email || "";
+  openEmailModal(_dTo,`[미수금 안내] ${b.aptName||""} ${b.type} 미납`,`안녕하세요, ${b.customerName} 담당자님.\n\n${b.aptName||""} ${b.constructionName||""} ${b.type} ${fmtNum(b.amount)}이(가) 미납 상태입니다.\n\n청구 발행일: ${b.issuedDate}\n청구 금액: ${fmtNum(b.amount)}\n\n빠른 처리 부탁드립니다.\n감사합니다.`);
 }
 
 // ── 청구서 ──
@@ -4272,7 +4456,8 @@ function issueBill(pid,kind){
   const bill={id:Date.now(),projectId:pid,customerName:p.customerName,aptName:p.aptName,constructionName:p.constructionName,constructionType:p.constructionType,contactEmail:p.contactEmail,bidPrice:p.bidPrice,type,amount,issuedDate:todayStr(),invoiceDate:"",depositDate:"",emailSentDate:"",status:"미수금"};
   allBills.push(bill);p.bills.push(bill);selBillId=bill.id;
   closeModal("modal-bill-preview");
-  openEmailModal(p.contactEmail||"",`[청구서] ${p.aptName||p.customerName} ${type} 청구 안내`,`안녕하세요, ${p.customerName} 담당자님.\n\n${p.aptName||""} ${p.constructionName||""} 관련 ${type}을(를) 아래와 같이 청구드립니다.\n\n■ 공사형태: ${p.constructionType}\n■ 낙찰가: ${fmtNum(p.bidPrice)}\n■ 청구 유형: ${type}\n■ 청구 금액: ${fmtNum(amount)}\n\n확인 후 처리 부탁드립니다.\n감사합니다.`);
+  const _emailTo = p.contactEmail || (companyMaster.find(c=>c.name===p.customerName)||{}).email || "";
+  openEmailModal(_emailTo,`[청구서] ${p.aptName||p.customerName} ${type} 청구 안내`,`안녕하세요, ${p.customerName} 담당자님.\n\n${p.aptName||""} ${p.constructionName||""} 관련 ${type}을(를) 아래와 같이 청구드립니다.\n\n■ 공사형태: ${p.constructionType}\n■ 낙찰가: ${fmtNum(p.bidPrice)}\n■ 청구 유형: ${type}\n■ 청구 금액: ${fmtNum(amount)}\n\n확인 후 처리 부탁드립니다.\n감사합니다.`);
 }
 
 function updateOrderDate(pid,oid,field,value){
@@ -4452,9 +4637,9 @@ function printBillData(p,b){
   <style>body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;max-width:700px;margin:40px auto;color:#222;font-size:14px}h1{text-align:center;font-size:24px;letter-spacing:6px;margin-bottom:4px}.sub{text-align:center;color:#888;font-size:12px;margin-bottom:30px}table{width:100%;border-collapse:collapse;margin-bottom:18px}th{background:#4338ca;color:#fff;padding:8px 12px;text-align:left;font-size:13px}td{padding:8px 12px;border-bottom:1px solid #eee;font-size:13px}.total td{background:#f0f4ff;font-weight:bold;font-size:15px}.footer{margin-top:40px;text-align:center;color:#aaa;font-size:11px}@media print{body{margin:10mm}}</style>
   </head><body>
   <h1>청 구 서</h1><div class="sub">발행일: ${todayStr()} | 문서번호: ${docNum}</div>
-  <table><tr><th colspan="2">수신처</th></tr><tr><td>고객사</td><td><b>${p.customerName}</b></td></tr><tr><td>현장명</td><td>${p.aptName||"-"}</td></tr><tr><td>공사명</td><td>${p.constructionName||"-"}</td></tr><tr><td>공사형태</td><td>${p.constructionType}</td></tr></table>
+  <table><tr><th colspan="2">수신처</th></tr><tr><td>고객사</td><td><b>${p.customerName}</b></td></tr><tr><td>현장명</td><td>${p.aptName||"-"}</td></tr></table>
   <table><tr><th colspan="2">청구 내역</th></tr><tr><td>낙찰가</td><td>${fmtNum(p.bidPrice)}</td></tr><tr><td>청구 유형</td><td>${b.type}</td></tr>${b.materialAmt>0?`<tr><td>자재대금</td><td>${fmtNum(b.materialAmt)}</td></tr>`:""}${b.patentAmt>0?`<tr><td>특허료</td><td>${fmtNum(b.patentAmt)}</td></tr>`:""}<tr class="total"><td>청구 금액 합계</td><td>${fmtNum(b.amount)}</td></tr></table>
-  ${p.orders&&p.orders.length>0?`<table><tr><th>주문일</th><th>품목</th><th>수량</th><th>단가</th><th>금액</th></tr>${p.orders.map(o=>`<tr><td>${o.date}</td><td>${o.item}</td><td>${o.qty}</td><td>${Number(o.unitPrice).toLocaleString()}</td><td>${Number(o.amount).toLocaleString()}원</td></tr>`).join("")}</table>`:""}
+  ${p.orders&&p.orders.filter(o=>o.invoiceDate).length>0?`<table><tr><th>세금계산서 발행일</th><th>금액</th></tr>${p.orders.filter(o=>o.invoiceDate).map(o=>`<tr><td>${o.invoiceDate}</td><td>${Number(o.amount).toLocaleString()}원</td></tr>`).join("")}</table>`:""}
   <div class="footer">본 청구서는 자동 생성되었습니다. | ${docNum}</div>
   <script>window.onload=()=>window.print();<\/script></body></html>`);
   win.document.close();
@@ -4522,7 +4707,7 @@ async function fbSave(){
   if(!_fbRef) return;
   try{
     _fbIgnoreNext = true;
-    await _fbRef.set({ projects, allBills, _savedAt: Date.now() });
+    await _fbRef.set({ projects, allBills, companyMaster, _savedAt: Date.now() });
     fbShowStatus("☁️ 클라우드 저장됨", "#16a34a");
   }catch(e){ fbShowStatus("⚠️ 클라우드 저장 실패", "#dc2626"); console.warn("fbSave error:", e); }
 }
@@ -4535,6 +4720,7 @@ async function fbLoad(){
     const d = snap.val();
     if(d.projects) projects = d.projects;
     if(d.allBills) allBills = d.allBills;
+    if(d.companyMaster) { companyMaster = d.companyMaster; saveCompanyMaster(); }
     normalizeData();
     return true;
   }catch(e){ console.warn("fbLoad error:", e); return false; }
@@ -4549,6 +4735,7 @@ function fbListen(){
     const d = snap.val();
     if(d.projects) projects = d.projects;
     if(d.allBills) allBills = d.allBills;
+    if(d.companyMaster){ companyMaster = d.companyMaster; saveCompanyMaster(); }
     normalizeData();
     try{ localStorage.setItem(SAVE_KEY, JSON.stringify({projects, allBills})); }catch(_){}
     renderPage(currentTab);
@@ -4568,40 +4755,11 @@ async function fbConnect(cfg){
   const ok = await fbInit(cfg);
   if(!ok){ alert("Firebase 연결 실패. 설정값을 확인해주세요."); return false; }
   fbSaveConfig(cfg);
-
-  // 현재 로컬 데이터 백업
-  const localProjects = JSON.parse(JSON.stringify(projects));
-  const localBills = JSON.parse(JSON.stringify(allBills));
-  const hasLocalData = localProjects.length > 0 || localBills.length > 0;
-
   const loaded = await fbLoad();
   if(loaded){
-    const hasFirebaseData = projects.length > 0 || allBills.length > 0;
-
-    if(hasLocalData && hasFirebaseData){
-      const choice = confirm(
-        "Firebase에 기존 데이터가 있습니다.\n\n" +
-        "✅ 확인: Firebase 데이터 사용\n" +
-        "❌ 취소: 방금 입력한 데이터를 Firebase에 업로드"
-      );
-      if(!choice){
-        // 로컬 데이터 복원 후 Firebase에 업로드
-        projects = localProjects;
-        allBills = localBills;
-        await fbSave();
-        try{ localStorage.setItem(SAVE_KEY, JSON.stringify({projects, allBills})); }catch(_){}
-        renderPage(currentTab);
-        fbShowStatus("☁️ Firebase 연결됨 — 현재 데이터 업로드 완료", "#16a34a");
-      } else {
-        try{ localStorage.setItem(SAVE_KEY, JSON.stringify({projects, allBills})); }catch(_){}
-        renderPage(currentTab);
-        fbShowStatus("☁️ Firebase 연결됨 — 데이터 불러옴", "#16a34a");
-      }
-    } else {
-      try{ localStorage.setItem(SAVE_KEY, JSON.stringify({projects, allBills})); }catch(_){}
-      renderPage(currentTab);
-      fbShowStatus("☁️ Firebase 연결됨 — 데이터 불러옴", "#16a34a");
-    }
+    try{ localStorage.setItem(SAVE_KEY, JSON.stringify({projects, allBills})); }catch(_){}
+    renderPage(currentTab);
+    fbShowStatus("☁️ Firebase 연결됨 — 데이터 불러옴", "#16a34a");
   } else {
     // Firebase에 데이터 없으면 현재 데이터 업로드
     await fbSave();
@@ -4725,6 +4883,8 @@ function loadData(){
 loadData();
 loadGuidePdfStore();
 loadHiworksDomain();
+loadN8nWebhook();
+loadCompanyMaster();
 document.getElementById("today-date").textContent=new Date().toLocaleDateString("ko-KR");
 
 // Firebase 자동 연결 (이전 기기에서 설정한 경우 복원)
