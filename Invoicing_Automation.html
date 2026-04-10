@@ -75,6 +75,7 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f0
 .ppage:hover{border-color:#6366f1;color:#4338ca}
 .ppage.active{background:#4338ca;color:#fff;border-color:#4338ca}
 .ppage.ellipsis{border:none;background:none;cursor:default;color:#9ca3af}
+.ppage.disabled,.ppage:disabled{opacity:.35;cursor:not-allowed;pointer-events:none}
 /* ── 그룹 헤더 ── */
 .group-header{display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:var(--radius-sm);margin-bottom:8px;margin-top:18px;font-size:12px;font-weight:700;letter-spacing:.3px}
 .group-header:first-child{margin-top:0}
@@ -158,9 +159,45 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f0
 .bill-row .lbl{color:var(--gray-400)}.bill-row .val{color:var(--gray-700)}
 .bill-row.total .val{color:var(--indigo)}
 
-/* ── 미수금 카드 ── */
+/* ── 청구서발행 컴팩트 리스트 ── */
+.blist-wrap{background:#fff;border:1px solid var(--gray-200);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow)}
+.blist-head{display:grid;grid-template-columns:1fr 90px 90px 110px 130px;gap:0;background:#f9fafb;border-bottom:1px solid var(--gray-200);padding:7px 12px;font-size:11px;font-weight:700;color:#6b7280}
+.blist-row{display:grid;grid-template-columns:1fr 90px 90px 110px 130px;gap:0;padding:8px 12px;border-bottom:1px solid #f3f4f6;align-items:center;transition:background .12s}
+.blist-row:last-child{border-bottom:none}
+.blist-row:hover{background:#f9fafb}
+.blist-name{font-weight:700;font-size:13px;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.blist-sub{font-size:11px;color:#6b7280;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.blist-amt{font-size:13px;font-weight:700;text-align:right}
+.blist-btns{display:flex;gap:4px;justify-content:flex-end;align-items:center}
+.blist-dl{font-size:11px;color:#6b7280;text-align:center}
+
+/* ── 미수금 카드 (legacy) ── */
 .unpaid-card{background:#fff;border-radius:var(--radius);border:1px solid var(--gray-200);border-left:4px solid #f87171;padding:16px;margin-bottom:10px;box-shadow:var(--shadow)}
 .paid-card{background:#fff;border-radius:var(--radius);border:1px solid var(--gray-200);border-left:4px solid #4ade80;padding:16px;margin-bottom:10px;box-shadow:var(--shadow)}
+/* ── 미수금 리뉴얼 ── */
+.up-aging-bar{display:flex;height:5px;border-radius:3px;overflow:hidden;gap:2px;margin-bottom:14px}
+.up-aging-tabs{display:flex;gap:5px;margin-bottom:10px;flex-wrap:wrap}
+.up-atab{border:1px solid #e5e7eb;background:#fff;border-radius:999px;padding:3px 11px;font-size:11px;font-weight:600;cursor:pointer;color:#6b7280;transition:all .12s}
+.up-atab.sel{background:#4338ca;color:#fff;border-color:#4338ca}
+.up-atab.sel-red{background:#dc2626;color:#fff;border-color:#dc2626}
+.up-atab.sel-orange{background:#ea580c;color:#fff;border-color:#ea580c}
+.up-atab.sel-yellow{background:#ca8a04;color:#fff;border-color:#ca8a04}
+.utbl{width:100%;border-collapse:collapse;background:#fff;border-radius:var(--radius-sm);overflow:hidden;border:1px solid var(--gray-200);font-size:12px}
+.utbl thead tr{background:#f9fafb}
+.utbl th{padding:7px 9px;text-align:left;font-size:11px;font-weight:700;color:#6b7280;border-bottom:1px solid #e5e7eb;white-space:nowrap}
+.utbl th.r{text-align:right}
+.utbl td{padding:8px 9px;border-bottom:1px solid #f3f4f6;vertical-align:middle}
+.utbl tr.data-row{cursor:pointer}
+.utbl tr.data-row:hover td{background:#f9fafb}
+.utbl tr.expand-row td{background:#f8f9ff;padding:0;border-bottom:1px solid #e5e7eb}
+.utbl tr:last-child td{border-bottom:none}
+.up-expand-inner{padding:10px 12px;display:grid;grid-template-columns:130px 130px 1fr auto;gap:8px;align-items:end}
+.up-field label{font-size:11px;font-weight:600;color:#6b7280;display:block;margin-bottom:3px}
+.up-field input,.up-field select{border:1px solid #d1d5db;border-radius:6px;padding:4px 7px;font-size:12px;font-family:inherit;width:100%;background:#fff;color:#111827;outline:none}
+.up-field input:focus,.up-field select:focus{border-color:#6366f1}
+.up-expand-btns{display:flex;flex-direction:column;gap:4px}
+.age-pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;white-space:nowrap}
+.age-60{background:#fee2e2;color:#dc2626}.age-30{background:#ffedd5;color:#c2410c}.age-ok{background:#dcfce7;color:#15803d}.age-none{background:#f3f4f6;color:#6b7280}
 
 /* ── 모달 ── */
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:100;align-items:center;justify-content:center;padding:16px}
@@ -1099,8 +1136,10 @@ function renderProjectsList(){
 
     // ── 페이지네이션 ──
     if(totalPages>1){
+      const isFirst = projPage<=1;
+      const isLast  = projPage>=totalPages;
       html+=`<div class="proj-pagination">`;
-      html+=`<button class="ppage" onclick="goProjPage(${Math.max(1,projPage-1)})">‹</button>`;
+      html+=`<button class="ppage${isFirst?' disabled':''}" ${isFirst?'disabled':''} onclick="if(!this.disabled)goProjPage(${projPage-1})">‹ 이전</button>`;
       for(let i=1;i<=totalPages;i++){
         if(i===1||i===totalPages||Math.abs(i-projPage)<=1){
           html+=`<button class="ppage${projPage===i?' active':''}" onclick="goProjPage(${i})">${i}</button>`;
@@ -1108,8 +1147,8 @@ function renderProjectsList(){
           html+=`<span class="ppage ellipsis">…</span>`;
         }
       }
-      html+=`<button class="ppage" onclick="goProjPage(${Math.min(totalPages,projPage+1)})">›</button>`;
-      html+=`<span style="font-size:11px;color:#9ca3af;margin-left:6px">${PROJ_PAGE_SIZE}건/페이지</span></div>`;
+      html+=`<button class="ppage${isLast?' disabled':''}" ${isLast?'disabled':''} onclick="if(!this.disabled)goProjPage(${projPage+1})">다음 ›</button>`;
+      html+=`<span style="font-size:11px;color:#9ca3af;margin-left:6px">${projPage}/${totalPages} 페이지</span></div>`;
     }
   }
 
@@ -1794,14 +1833,12 @@ function renderBillingList(){
     return;
   }
 
-  // 이미 발행된 청구서 타입을 현장별로 수집 (미수금/계산서발행 포함, 수금완료도 포함)
   const issuedTypeMap = {};
   allBills.forEach(b=>{
     if(!issuedTypeMap[b.projectId]) issuedTypeMap[b.projectId]=new Set();
     issuedTypeMap[b.projectId].add(b.type);
   });
 
-  // 발행 가능한 유형이 하나라도 남아있는 현장만 표시
   const displayFiltered = filtered.filter(p=>{
     const b = calcBilling(p);
     const issued = issuedTypeMap[p.id] || new Set();
@@ -1811,7 +1848,17 @@ function renderBillingList(){
     return materialPending || patentPending || execPending;
   });
 
-  let html = `<div style="font-size:11px;color:#9ca3af;margin-bottom:8px">${displayFiltered.length}건 표시 중</div>`;
+  // ── 컴팩트 리스트 렌더링 ──
+  let html = `<div style="font-size:11px;color:#9ca3af;margin-bottom:8px">청구 대상 <strong style="color:#374151">${displayFiltered.length}건</strong></div>
+  <div class="blist-wrap">
+    <div class="blist-head">
+      <div>현장</div>
+      <div style="text-align:right">자재대금</div>
+      <div style="text-align:right">특허료</div>
+      <div style="text-align:center">준공</div>
+      <div style="text-align:right">액션</div>
+    </div>`;
+
   displayFiltered.forEach(p => {
     const b = calcBilling(p);
     const dl = daysLeft(p.expectedCompletionDate);
@@ -1819,34 +1866,38 @@ function renderBillingList(){
     const issued = issuedTypeMap[p.id] || new Set();
     const materialPending = b.materialAmt > 0 && !issued.has("자재대금");
     const patentPending   = b.patentAmt   > 0 && !issued.has("특허료");
-    html += `<div class="card" style="${p.status==='완료'?'border-left:4px solid #4ade80;opacity:0.85':''}">
-      <div class="proj-header">
-        <div>
-          <div class="proj-name">${p.customerName}</div>
-          <div class="proj-sub">${p.aptName||""} ${p.constructionName?`· ${p.constructionName}`:""}</div>
-        </div>
-        ${badge(p.constructionType,typeColor(p.constructionType))}
+
+    // 준공 D-day 표시
+    let dlStr = "-";
+    if(dl !== null){
+      if(dl >= 0) dlStr = `<span style="color:${dl<=7?'#dc2626':'#ca8a04'};font-weight:700">D-${dl}</span>`;
+      else        dlStr = `<span style="color:#6b7280">D+${Math.abs(dl)}</span>`;
+    }
+
+    // 액션 버튼 (컴팩트)
+    let actionBtns = "";
+    if(isExec && materialPending){
+      actionBtns = `<button class="btn btn-primary btn-sm" style="padding:3px 8px;font-size:11px" onclick="openBillPreview(${p.id},'material')">자재(준공)</button>`;
+    } else {
+      if(materialPending) actionBtns += `<button class="btn btn-blue btn-sm" style="padding:3px 7px;font-size:11px" onclick="openBillPreview(${p.id},'material')">자재(월)</button> `;
+      if(patentPending)   actionBtns += `<button class="btn btn-purple btn-sm" style="padding:3px 7px;font-size:11px" onclick="openBillPreview(${p.id},'patent')">특허료</button> `;
+    }
+    actionBtns += `<button class="btn btn-gray btn-sm" style="padding:3px 7px;font-size:11px" title="PDF 출력" onclick="printBill(${p.id})">🖨️</button>`;
+
+    const completedStyle = p.status==='완료' ? 'border-left:3px solid #4ade80;opacity:0.8' : '';
+    html += `<div class="blist-row" style="${completedStyle}">
+      <div style="min-width:0">
+        <div class="blist-name">${p.aptName||p.customerName}${p.status==='완료'?' <span style="font-size:10px;color:#16a34a">완료</span>':''}</div>
+        <div class="blist-sub">${p.aptName?p.customerName+' · ':''}${badge(p.constructionType,typeColor(p.constructionType))}</div>
       </div>
-      <div class="bill-box">
-        <div class="bill-row"><span class="lbl">낙찰가</span><span class="val">${fmtNum(p.bidPrice)}</span></div>
-        ${!isExec?`<div class="bill-row"><span class="lbl">2% 기준액</span><span class="val">${fmtNum(p.bidPrice*0.02)}</span></div>`:""}
-        ${materialPending?`<div class="bill-row"><span class="lbl">자재대금</span><span class="val" style="color:#1d4ed8;font-weight:600">${fmtNum(b.materialAmt)}</span></div>`:""}
-        ${patentPending?`<div class="bill-row"><span class="lbl">특허료</span><span class="val" style="color:#7c3aed;font-weight:600">${fmtNum(b.patentAmt)}</span></div>`:""}
-        <div class="bill-row total"><span>청구 예정</span><span class="val">${fmtNum((materialPending?b.materialAmt:0)+(patentPending?b.patentAmt:0))}</span></div>
-      </div>
-      ${dl!==null?`<div class="info-box ${dl<=7?'info-yellow':'info-gray'}" style="margin-bottom:10px">📅 준공예정: ${p.expectedCompletionDate} (${dl>=0?`D-${dl}`:`D+${Math.abs(dl)}`})</div>`:""}
-      ${isExec?`
-        <div class="btn-row">
-          <button class="btn btn-primary" style="flex:1" onclick="openBillPreview(${p.id},'material')">📄 자재대금 청구 (준공)</button>
-          <button class="btn btn-gray" onclick="printBill(${p.id})">🖨️ PDF</button>
-        </div>`:`
-        <div class="btn-row">
-          ${materialPending?`<button class="btn btn-blue" style="flex:1" onclick="openBillPreview(${p.id},'material')">📄 자재대금 청구 (월)</button>`:""}
-          ${patentPending?`<button class="btn btn-purple" style="flex:1" onclick="openBillPreview(${p.id},'patent')">📄 특허료 청구 (준공)</button>`:""}
-        </div>
-        <button class="btn btn-gray btn-full" style="margin-top:6px" onclick="printBill(${p.id})">🖨️ PDF 출력</button>`}
+      <div class="blist-amt" style="color:${materialPending?'#1d4ed8':'#d1d5db'}">${materialPending?fmtNum(b.materialAmt):'—'}</div>
+      <div class="blist-amt" style="color:${patentPending?'#7c3aed':'#d1d5db'}">${patentPending?fmtNum(b.patentAmt):'—'}</div>
+      <div class="blist-dl">${dlStr}</div>
+      <div class="blist-btns">${actionBtns}</div>
     </div>`;
   });
+
+  html += `</div>`;
   el.innerHTML = html;
 }
 
@@ -1889,113 +1940,207 @@ function renderUnpaid(){
     return;
   }
 
-  const totalAmt = allBills.reduce((s,b)=>s+b.amount,0) + orderUnpaid.reduce((s,o)=>s+o.totalAmount,0);
+  const totalAmt  = allBills.reduce((s,b)=>s+b.amount,0) + orderUnpaid.reduce((s,o)=>s+o.totalAmount,0);
   const unpaidAmt = billUnpaid.reduce((s,b)=>s+b.amount,0) + orderUnpaid.reduce((s,o)=>s+o.totalAmount,0);
   const paidAmt   = allBills.filter(b=>b.status==="수금완료").reduce((s,b)=>s+b.amount,0);
 
+  // ── 에이징 분류 헬퍼 ──
+  function getAge(item){
+    const refDate = item._type==="order" ? item.latestInvoiceDate : (item.invoiceDate||item.issuedDate);
+    if(!refDate) return null;
+    return Math.floor((Date.now()-new Date(refDate).getTime())/86400000);
+  }
+  function agePill(days){
+    if(days===null) return `<span class="age-pill age-none">미발행</span>`;
+    if(days>=60) return `<span class="age-pill age-60">+${days}일</span>`;
+    if(days>=30) return `<span class="age-pill age-30">+${days}일</span>`;
+    return `<span class="age-pill age-ok">${days===0?'발행당일':'+'+days+'일'}</span>`;
+  }
+
+  // 경과일 내림차순 정렬
+  const sorted = [...allUnpaidItems].sort((a,b)=>{
+    const da=getAge(a)??-1, db=getAge(b)??-1;
+    return db-da;
+  });
+
+  const cnt60 = sorted.filter(x=>(getAge(x)??0)>=60).length;
+  const cnt30 = sorted.filter(x=>{const d=getAge(x)??0;return d>=30&&d<60;}).length;
+  const cntOk = sorted.filter(x=>(getAge(x)??0)<30).length;
+  const tot   = sorted.length;
+  // 에이징 바 비율
+  const bar60 = tot?Math.max(3,Math.round(cnt60/tot*100)):0;
+  const bar30 = tot?Math.max(3,Math.round(cnt30/tot*100)):0;
+  const barOk = 100-bar60-bar30;
+
   let html=`<p class="sec-title">💰 미수금 관리</p>
-  <div class="grid-3">
-    <div class="stat-card" style="text-align:center"><div class="label">전체 청구</div><div class="value v-gray">${fmtNum(totalAmt)}</div></div>
-    <div class="stat-card" style="text-align:center"><div class="label">미수금</div><div class="value ${unpaidAmt>0?"v-red":"v-gray"}">${fmtNum(unpaidAmt)}</div></div>
-    <div class="stat-card" style="text-align:center"><div class="label">수금 완료</div><div class="value v-green">${fmtNum(paidAmt)}</div></div>
+  <div class="grid-4" style="margin-bottom:12px">
+    <div class="stat-card" style="text-align:center;padding:12px"><div class="label">전체 청구</div><div class="value v-gray" style="font-size:16px">${fmtNum(totalAmt)}</div></div>
+    <div class="stat-card" style="text-align:center;padding:12px"><div class="label">미수금</div><div class="value ${unpaidAmt>0?"v-red":"v-gray"}" style="font-size:16px">${fmtNum(unpaidAmt)}</div></div>
+    <div class="stat-card" style="text-align:center;padding:12px"><div class="label">수금 완료</div><div class="value v-green" style="font-size:16px">${fmtNum(paidAmt)}</div></div>
+    <div class="stat-card" style="text-align:center;padding:12px"><div class="label">미수 건수</div><div class="value ${tot>0?"v-red":"v-gray"}" style="font-size:16px">${tot}건</div></div>
   </div>`;
 
   if(allUnpaidItems.length===0){
     html+=`<div class="info-box info-green" style="text-align:center;padding:16px">✅ 모든 청구가 수금 완료되었습니다.</div>`;
-  } else {
-    html+=`<p class="sec-title">⚠️ 미수금 내역 (${allUnpaidItems.length}건)</p>`;
-    allUnpaidItems.forEach(item=>{
-      if(item._type==="order"){
-        const ageDaysO = item.latestInvoiceDate ? Math.floor((Date.now()-new Date(item.latestInvoiceDate).getTime())/86400000) : null;
-        const ageColorO = ageDaysO===null?'#9ca3af':ageDaysO>=60?'#dc2626':ageDaysO>=30?'#f97316':'#ca8a04';
-        const ageLabelO = ageDaysO===null?'':ageDaysO===0?'발행당일':`+${ageDaysO}일 경과`;
-        // 주문 건수가 여러 개면 상세 목록 표시
-        const orderDetailRows = item.orders.map(o=>`
-          <tr>
-            <td style="padding:3px 6px;font-size:11px;color:#374151">${o.invoiceDate}</td>
-            <td style="padding:3px 6px;font-size:11px;text-align:right;color:#4338ca;font-weight:600">${fmtNum(o.amount)}</td>
-          </tr>`).join("");
-        const detailTable = item.orders.length>1 ? `
-          <div style="margin:8px 0 4px;background:#f9fafb;border-radius:6px;overflow:hidden">
-            <table style="width:100%;border-collapse:collapse">
-              <thead><tr>
-                <th style="padding:4px 6px;font-size:10px;color:#6b7280;text-align:left;background:#f3f4f6">계산서발행일</th>
-                <th style="padding:4px 6px;font-size:10px;color:#6b7280;text-align:right;background:#f3f4f6">금액</th>
-              </tr></thead>
-              <tbody>${orderDetailRows}</tbody>
-            </table>
-          </div>` : "";
-        html+=`<div class="unpaid-card" style="border-left-color:${ageColorO}">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
-            <div>
-              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:2px">
-                ${badge(item.constructionType,typeColor(item.constructionType))}
-                ${badge("자재계산서","b-orange")}
-                <strong style="font-size:13px">${item.aptName||item.customerName}</strong>
-              </div>
-              <div style="font-size:11px;color:#6b7280">${item.aptName?item.customerName+'　·　':''}${item.orders.length}건 · 최근 발행일: ${item.latestInvoiceDate}</div>
-            </div>
-            <div style="text-align:right">
-              <div style="font-weight:700;color:#4338ca;margin-bottom:3px">${fmtNum(item.totalAmount)}</div>
-              ${badge("미입금","b-red")}
-              ${ageDaysO!==null?`<div style="font-size:11px;font-weight:700;color:${ageColorO};margin-top:4px">${ageLabelO}</div>`:''}
-            </div>
-          </div>
-          ${detailTable}
-        </div>`;
-      } else {
-        const stBadge=item.status==="계산서발행"?"b-yellow":"b-red";
-        const typeBadge=item.type==="특허료"?"b-patent":item.type==="자재대금"?"b-blue":"b-blue";
-        const refDate = item.invoiceDate || item.issuedDate;
-        const ageDaysB = refDate ? Math.floor((Date.now()-new Date(refDate).getTime())/86400000) : null;
-        const ageColorB = ageDaysB===null?'#9ca3af':ageDaysB>=60?'#dc2626':ageDaysB>=30?'#f97316':'#ca8a04';
-        const ageLabelB = ageDaysB===null?'계산서 미발행':ageDaysB===0?'발행당일':`+${ageDaysB}일 경과`;
-        html+=`<div class="unpaid-card" style="border-left-color:${ageColorB}">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
-            <div>
-              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:2px">
-                ${badge(item.constructionType,typeColor(item.constructionType))}
-                ${item.type?badge(item.type,typeBadge):""}
-                ${(()=>{const p=projects.find(x=>x.id===item.projectId);return p&&p.creditGrade?creditBadge(p.creditGrade):"";})()}
-                <strong style="font-size:13px">${item.aptName||item.customerName}</strong>
-              </div>
-              <div style="font-size:11px;color:#6b7280">${item.aptName?item.customerName+'　·　':''}${item.constructionName||""} 발행: ${item.issuedDate}</div>
-              ${item.emailSentDate?`<div style="font-size:11px;color:#6366f1">✉️ 발송: ${item.emailSentDate}</div>`:""}
-            </div>
-            <div style="text-align:right">
-              <div style="font-weight:700;color:#4338ca;margin-bottom:3px">${fmtNum(item.amount)}</div>
-              ${badge(item.status,stBadge)}
-              <div style="font-size:11px;font-weight:700;color:${ageColorB};margin-top:4px">${ageLabelB}</div>
-            </div>
-          </div>
-          <div class="grid-2" style="margin-bottom:10px">
-            <div class="field" style="margin-bottom:0"><label>계산서 발행일</label><input type="date" value="${item.invoiceDate||""}" onchange="updateBillDate(${item.id},'invoiceDate',this.value)"/></div>
-            <div class="field" style="margin-bottom:0"><label>입금일</label><input type="date" value="${item.depositDate||""}" onchange="updateBillDate(${item.id},'depositDate',this.value)"/></div>
-          </div>
-          <div class="field" style="margin-bottom:10px">
-            <label style="color:#dc2626">⚠️ 수금지연 사유</label>
-            <select onchange="updateBillDelayReason(${item.id},'reason',this.value)" style="width:100%;border:1px solid #fca5a5;border-radius:8px;padding:7px 10px;font-size:12px;font-family:inherit;background:#fff9f9">
-              <option value="">-- 사유 선택 --</option>
-              <option value="고객사 자금 부족" ${(item.delayReason||"")==="고객사 자금 부족"?"selected":""}>고객사 자금 부족</option>
-              <option value="담당자 부재·연락두절" ${(item.delayReason||"")==="담당자 부재·연락두절"?"selected":""}>담당자 부재·연락두절</option>
-              <option value="계산서 수령 미확인" ${(item.delayReason||"")==="계산서 수령 미확인"?"selected":""}>계산서 수령 미확인</option>
-              <option value="공사 하자 클레임" ${(item.delayReason||"")==="공사 하자 클레임"?"selected":""}>공사 하자 클레임</option>
-              <option value="고객사 내부 결재 지연" ${(item.delayReason||"")==="고객사 내부 결재 지연"?"selected":""}>고객사 내부 결재 지연</option>
-              <option value="세금계산서 미발행(우리측)" ${(item.delayReason||"")==="세금계산서 미발행(우리측)"?"selected":""}>세금계산서 미발행(우리측)</option>
-              <option value="기타" ${(item.delayReason||"")==="기타"?"selected":""}>기타</option>
-            </select>
-            ${(item.delayReason||"")==="기타"?`<input type="text" value="${item.delayReasonNote||""}" placeholder="기타 사유 직접 입력..." onchange="updateBillDelayReason(${item.id},'note',this.value)" style="margin-top:5px;width:100%;border:1px solid #fca5a5;border-radius:8px;padding:7px 10px;font-size:12px;font-family:inherit;box-sizing:border-box"/>`:``}
-          </div>
-          <div class="btn-row">
-            <button class="btn btn-orange" style="flex:1" onclick="openDunningEmail(${item.id})">✉️ 독촉 이메일</button>
-            <button class="btn btn-gray" style="flex:1" onclick="printBillById(${item.id})">🖨️ PDF 재출력</button>
-          </div>
-        </div>`;
-      }
-    });
+    document.getElementById("page-4").innerHTML=html;
+    return;
   }
 
+  // 에이징 바
+  html+=`<div class="up-aging-bar">
+    <div style="background:#dc2626;flex:${bar60};min-width:${cnt60?'4px':'0'}"></div>
+    <div style="background:#ea580c;flex:${bar30};min-width:${cnt30?'4px':'0'}"></div>
+    <div style="background:#4ade80;flex:${barOk};min-width:${cntOk?'4px':'0'}"></div>
+  </div>`;
+
+  // 에이징 탭
+  html+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+    <div class="up-aging-tabs">
+      <button class="up-atab sel" onclick="upSetFilter('all',this)">전체 ${tot}건</button>
+      ${cnt60?`<button class="up-atab" onclick="upSetFilter('60',this)">🔴 60일+ ${cnt60}건</button>`:''}
+      ${cnt30?`<button class="up-atab" onclick="upSetFilter('30',this)">🟠 30–59일 ${cnt30}건</button>`:''}
+      ${cntOk?`<button class="up-atab" onclick="upSetFilter('ok',this)">🟡 30일 미만 ${cntOk}건</button>`:''}
+    </div>
+    <span style="font-size:11px;color:#9ca3af">행 클릭 → 날짜·사유 입력</span>
+  </div>`;
+
+  // 테이블
+  html+=`<div style="overflow-x:auto">
+  <table class="utbl">
+  <thead><tr>
+    <th style="width:22px"></th>
+    <th>현장</th>
+    <th>구분</th>
+    <th class="r">금액</th>
+    <th class="r">경과일</th>
+    <th>계산서</th>
+    <th>입금일</th>
+    <th>지연사유</th>
+    <th class="r">액션</th>
+  </tr></thead>
+  <tbody id="up-tbody">`;
+
+  sorted.forEach((item,idx)=>{
+    const rowId = `uprow-${idx}`;
+    const days  = getAge(item);
+
+    if(item._type==="order"){
+      // ── 자재계산서 미입금 ──
+      const refLabel = item.latestInvoiceDate||"-";
+      const multiNote = item.orders.length>1 ? ` (${item.orders.length}건)` : "";
+      const depositInputs = item.orders.length===1
+        ? `<div class="up-field"><label>입금일</label><input type="date" value="${item.orders[0].depositDate||""}" onchange="updateOrderDepositDate(${item.projectId},${item.orders[0].id},this.value)" onclick="event.stopPropagation()"/></div>`
+        : `<div class="up-field"><label>일괄 입금일 적용</label><input type="date" value="" onchange="updateAllOrdersDepositDate(${item.projectId},this.value)" onclick="event.stopPropagation()"/></div>`;
+
+      html+=`<tr class="data-row" onclick="upToggle('${rowId}')" data-age="${days??-1}">
+        <td><span id="${rowId}-arr" style="font-size:10px;color:#9ca3af">▶</span></td>
+        <td>
+          <div style="font-weight:700;font-size:12px;color:#111827">${item.aptName||item.customerName}</div>
+          <div style="font-size:11px;color:#6b7280">${item.aptName?item.customerName+'  ·  ':''}</div>
+        </td>
+        <td>${badge("자재계산서","b-orange")}${multiNote?`<span style="font-size:10px;color:#9ca3af;margin-left:3px">${multiNote}</span>`:""}</td>
+        <td style="text-align:right;font-weight:700;color:#4338ca">${fmtNum(item.totalAmount)}</td>
+        <td style="text-align:right">${agePill(days)}</td>
+        <td style="font-size:11px;color:#374151">${refLabel}</td>
+        <td style="font-size:11px;color:#dc2626">미입금</td>
+        <td style="font-size:11px;color:#9ca3af">—</td>
+        <td style="text-align:right"></td>
+      </tr>
+      <tr class="expand-row" id="${rowId}" style="display:none">
+        <td colspan="9">
+          <div class="up-expand-inner" style="grid-template-columns:140px 1fr auto" onclick="event.stopPropagation()">
+            <div class="up-field"><label>계산서 발행일 (최근)</label><input type="date" value="${item.latestInvoiceDate||""}" readonly style="background:#f3f4f6;color:#6b7280"/></div>
+            ${depositInputs}
+            <div class="up-expand-btns">
+              <button class="btn btn-gray btn-sm" onclick="event.stopPropagation();printBillById && printBillById()">🖨️ PDF</button>
+            </div>
+          </div>
+        </td>
+      </tr>`;
+
+    } else {
+      // ── 청구서 미수금 ──
+      const stBadge   = item.status==="계산서발행"?"b-yellow":"b-red";
+      const typeBadge = item.type==="특허료"?"b-patent":"b-blue";
+      const delayTxt  = item.delayReason||(item.invoiceDate?"":(item.status==="청구서발행"?"계산서 미발행":""));
+      const emailTxt  = item.emailSentDate?`<span style="font-size:10px;color:#6366f1">✉️${item.emailSentDate}</span>`:"";
+
+      html+=`<tr class="data-row" onclick="upToggle('${rowId}')" data-age="${days??-1}">
+        <td><span id="${rowId}-arr" style="font-size:10px;color:#9ca3af">▶</span></td>
+        <td>
+          <div style="font-weight:700;font-size:12px;color:#111827">${item.aptName||item.customerName}</div>
+          <div style="font-size:11px;color:#6b7280">${item.aptName?item.customerName+'  ·  ':''}<span style="color:#374151">${item.constructionName||""}</span> ${emailTxt}</div>
+        </td>
+        <td>${badge(item.type||"",typeBadge)}</td>
+        <td style="text-align:right;font-weight:700;color:#4338ca">${fmtNum(item.amount)}</td>
+        <td style="text-align:right">${agePill(days)}</td>
+        <td style="font-size:11px;color:#374151">${item.invoiceDate||"—"}</td>
+        <td>${badge(item.status,stBadge)}</td>
+        <td style="font-size:11px;color:#6b7280;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${delayTxt||"—"}</td>
+        <td style="text-align:right"><button class="btn btn-orange btn-sm" style="padding:3px 8px;font-size:11px;white-space:nowrap" onclick="event.stopPropagation();openDunningEmail(${item.id})">✉️ 독촉</button></td>
+      </tr>
+      <tr class="expand-row" id="${rowId}" style="display:none">
+        <td colspan="9">
+          <div class="up-expand-inner" onclick="event.stopPropagation()">
+            <div class="up-field"><label>계산서 발행일</label><input type="date" value="${item.invoiceDate||""}" onchange="updateBillDate(${item.id},'invoiceDate',this.value)"/></div>
+            <div class="up-field"><label>입금일</label><input type="date" value="${item.depositDate||""}" onchange="updateBillDate(${item.id},'depositDate',this.value)"/></div>
+            <div class="up-field" style="grid-column:span 1">
+              <label>수금지연 사유</label>
+              <select onchange="updateBillDelayReason(${item.id},'reason',this.value)">
+                <option value="">-- 사유 선택 --</option>
+                <option value="고객사 자금 부족" ${(item.delayReason||"")==="고객사 자금 부족"?"selected":""}>고객사 자금 부족</option>
+                <option value="담당자 부재·연락두절" ${(item.delayReason||"")==="담당자 부재·연락두절"?"selected":""}>담당자 부재·연락두절</option>
+                <option value="계산서 수령 미확인" ${(item.delayReason||"")==="계산서 수령 미확인"?"selected":""}>계산서 수령 미확인</option>
+                <option value="공사 하자 클레임" ${(item.delayReason||"")==="공사 하자 클레임"?"selected":""}>공사 하자 클레임</option>
+                <option value="고객사 내부 결재 지연" ${(item.delayReason||"")==="고객사 내부 결재 지연"?"selected":""}>고객사 내부 결재 지연</option>
+                <option value="세금계산서 미발행(우리측)" ${(item.delayReason||"")==="세금계산서 미발행(우리측)"?"selected":""}>세금계산서 미발행(우리측)</option>
+                <option value="기타" ${(item.delayReason||"")==="기타"?"selected":""}>기타</option>
+              </select>
+              ${(item.delayReason||"")==="기타"?`<input type="text" value="${item.delayReasonNote||""}" placeholder="기타 사유..." onchange="updateBillDelayReason(${item.id},'note',this.value)" style="margin-top:4px;width:100%;border:1px solid #d1d5db;border-radius:6px;padding:4px 7px;font-size:12px;font-family:inherit"/>`:``}
+            </div>
+            <div class="up-expand-btns">
+              <button class="btn btn-orange btn-sm" onclick="event.stopPropagation();openDunningEmail(${item.id})">✉️ 독촉</button>
+              <button class="btn btn-gray btn-sm" onclick="event.stopPropagation();printBillById(${item.id})">🖨️ PDF</button>
+            </div>
+          </div>
+        </td>
+      </tr>`;
+    }
+  });
+
+  html+=`</tbody></table></div>`;
   document.getElementById("page-4").innerHTML=html;
+}
+
+function upToggle(rowId){
+  const row = document.getElementById(rowId);
+  const arr = document.getElementById(rowId+"-arr");
+  if(!row) return;
+  const open = row.style.display!=="none";
+  row.style.display = open ? "none" : "table-row";
+  if(arr) arr.textContent = open ? "▶" : "▼";
+}
+
+function upSetFilter(mode, btn){
+  document.querySelectorAll(".up-atab").forEach(b=>{b.className="up-atab";});
+  btn.classList.add("sel");
+  const rows = document.querySelectorAll("#up-tbody tr.data-row");
+  rows.forEach(tr=>{
+    const age = parseInt(tr.dataset.age??"-1");
+    const rowId = tr.querySelector("[id$='-arr']")?.id?.replace("-arr","");
+    let show = true;
+    if(mode==="60") show = age>=60;
+    else if(mode==="30") show = age>=30 && age<60;
+    else if(mode==="ok") show = age>=0 && age<30;
+    tr.style.display = show ? "" : "none";
+    // 필터 변경 시 확장 행 닫기
+    if(rowId){
+      const expRow = document.getElementById(rowId);
+      if(expRow){ expRow.style.display="none"; }
+      const arr = document.getElementById(rowId+"-arr");
+      if(arr) arr.textContent="▶";
+    }
+  });
 }
 
 function updateBillDelayReason(bid, field, value){
@@ -2946,12 +3091,13 @@ function renderEmailMissingList(){
 
   if(missing.length){
     html += `<div style="font-size:12px;font-weight:700;color:#dc2626;margin-bottom:6px">⚠️ 이메일 완전 미등록 (시공사 마스터에도 없음) — ${missing.length}건</div>
-    <div style="max-height:200px;overflow-y:auto;border:1px solid #fecaca;border-radius:8px;background:#fef2f2">
+    <div style="max-height:240px;overflow-y:auto;border:1px solid #fecaca;border-radius:8px;background:#fef2f2">
     ${missing.map(p=>`<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid #fee2e2;font-size:12px">
-      <span style="flex:1;font-weight:600;color:#dc2626">${p.customerName}</span>
-      <span style="color:#6b7280;flex:1">${p.aptName||"-"}</span>
-      <span style="font-size:11px;color:#9ca3af">${p.constructionType}</span>
-      <button class="btn btn-sm" style="background:#fff;border:1px solid #fca5a5;color:#dc2626" onclick="openEditProject(${p.id})">이메일 입력</button>
+      <span style="flex:1;font-weight:600;color:#dc2626;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.customerName}</span>
+      <span style="color:#6b7280;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.aptName||"-"}</span>
+      <span style="font-size:11px;color:#9ca3af;white-space:nowrap">${p.constructionType}</span>
+      <button class="btn btn-sm" style="background:#fff;border:1px solid #fca5a5;color:#dc2626;white-space:nowrap;flex-shrink:0" onclick="openEditProject(${p.id})">이메일 입력</button>
+      <button class="btn btn-sm" style="background:#fee2e2;border:1px solid #fca5a5;color:#dc2626;flex-shrink:0;padding:3px 7px" onclick="deleteProjectFromMissing(${p.id})" title="현장 삭제">🗑️</button>
     </div>`).join("")}
     </div>`;
   }
@@ -2961,6 +3107,17 @@ function renderEmailMissingList(){
   }
 
   el.innerHTML = html;
+}
+
+function deleteProjectFromMissing(pid){
+  const p = projects.find(x=>x.id===pid);
+  if(!p) return;
+  const label = `${p.customerName}${p.aptName?' · '+p.aptName:''}`;
+  if(!confirm(`"${label}" 현장을 삭제하시겠습니까?\n\n연결된 청구서·주문 데이터도 함께 삭제됩니다.`)) return;
+  projects = projects.filter(x=>x.id!==pid);
+  allBills = allBills.filter(x=>x.projectId!==pid);
+  saveData();
+  renderEmailMissingList();
 }
 
 function applyMasterEmail(pid){
@@ -4111,8 +4268,8 @@ function openAddProject(){
   document.getElementById("f-submit-btn").textContent="현장 등록";
   document.getElementById("f-edit-id").value="";
   ["f-customer","f-apt","f-consname","f-bid","f-category","f-patent","f-email","f-biddate","f-startdate","f-enddate","f-guidesentdate","f-memo"].forEach(id=>{document.getElementById(id).value="";});
-  document.getElementById("f-constype").value="컨설팅";
-  document.getElementById("f-status").value="진행중";
+  document.getElementById("f-constype").value="공고";
+  document.getElementById("f-status").value="대기";
   document.getElementById("f-credit").value="신규";
   updateTypeHint();
   openModal("modal-project");
