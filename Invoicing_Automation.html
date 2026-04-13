@@ -3018,138 +3018,6 @@ function downloadCompletedExcel(){
   if(window._showSaved) window._showSaved("📥 완료현장 엑셀 저장됨");
 }
 
-// ── 설정 탭 ──
-function renderEmailMissingList(){
-  const badge = document.getElementById("email-missing-badge");
-  const el = document.getElementById("email-missing-list");
-  if(!el) return;
-
-  // 이름 정규화 함수 (㈜, (주), 공백 제거)
-  const normName = s => String(s||"").replace(/[㈜\(\)주유\s]/g,"").toLowerCase();
-
-  const findInMaster = (customerName) => {
-    const nCust = normName(customerName);
-    return companyMaster.find(c => {
-      const nMaster = normName(c.name);
-      return nMaster === nCust ||
-        (nMaster.length >= 2 && nCust.length >= 2 &&
-         (nMaster.includes(nCust) || nCust.includes(nMaster)));
-    });
-  };
-
-  // 진행 중 현장 중 이메일 없는 것 (contactEmail 없고 마스터에도 없는 것)
-  // 공고 형태는 낙찰사 미정이므로 제외
-  const missing = projects.filter(p => {
-    if(p.status === "완료") return false;
-    if(p.constructionType === "공고") return false;
-    const hasEmail = p.contactEmail || findInMaster(p.customerName);
-    return !hasEmail;
-  });
-
-  // 이메일 있지만 현장에 직접 미등록인 것 (마스터에서 자동매칭 가능)
-  const autoMatch = projects.filter(p => {
-    if(p.status === "완료") return false;
-    if(p.constructionType === "공고") return false;
-    if(p.contactEmail) return false;
-    return !!findInMaster(p.customerName);
-  });
-
-  if(badge){
-    if(missing.length > 0){
-      badge.textContent = `⚠️ 미등록 ${missing.length}건`;
-      badge.style.color = "#dc2626";
-    } else {
-      badge.textContent = "✅ 전체 등록 완료";
-      badge.style.color = "#16a34a";
-    }
-  }
-
-  if(!projects.length){
-    el.innerHTML = '<div style="font-size:12px;color:#9ca3af;padding:8px 0">등록된 현장이 없습니다.</div>';
-    return;
-  }
-
-  let html = "";
-
-  if(autoMatch.length){
-    html += `<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:#1d4ed8">
-      📋 아래 ${autoMatch.length}건은 시공사 마스터에서 이메일 자동 매칭 가능합니다.
-      <button class="btn btn-blue btn-sm" style="margin-left:8px" onclick="applyAllMasterEmail()">전체 자동 입력</button>
-    </div>
-    <div style="margin-bottom:10px;max-height:150px;overflow-y:auto;border:1px solid #bfdbfe;border-radius:8px">
-    ${autoMatch.map(p=>{
-      const _nN = s => String(s||"").replace(/[㈜\(\)주유\s]/g,"").toLowerCase();
-      const found = companyMaster.find(c=>{const nM=_nN(c.name),nP=_nN(p.customerName);return nM===nP||(nM.length>=2&&nP.length>=2&&(nM.includes(nP)||nP.includes(nM)));});
-      return `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid #eff6ff;font-size:12px">
-        <span style="flex:1;font-weight:600">${p.customerName}</span>
-        <span style="color:#6b7280;flex:1">${p.aptName||"-"}</span>
-        <span style="color:#1d4ed8">${found?.email||""}</span>
-        <button class="btn btn-blue btn-sm" onclick="applyMasterEmail(${p.id})">입력</button>
-      </div>`;
-    }).join("")}
-    </div>`;
-  }
-
-  if(missing.length){
-    html += `<div style="font-size:12px;font-weight:700;color:#dc2626;margin-bottom:6px">⚠️ 이메일 완전 미등록 (시공사 마스터에도 없음) — ${missing.length}건</div>
-    <div style="max-height:240px;overflow-y:auto;border:1px solid #fecaca;border-radius:8px;background:#fef2f2">
-    ${missing.map(p=>`<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid #fee2e2;font-size:12px">
-      <span style="flex:1;font-weight:600;color:#dc2626;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.customerName}</span>
-      <span style="color:#6b7280;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.aptName||"-"}</span>
-      <span style="font-size:11px;color:#9ca3af;white-space:nowrap">${p.constructionType}</span>
-      <button class="btn btn-sm" style="background:#fff;border:1px solid #fca5a5;color:#dc2626;white-space:nowrap;flex-shrink:0" onclick="openEditProject(${p.id})">이메일 입력</button>
-      <button class="btn btn-sm" style="background:#fee2e2;border:1px solid #fca5a5;color:#dc2626;flex-shrink:0;padding:3px 7px" onclick="deleteProjectFromMissing(${p.id})" title="현장 삭제">🗑️</button>
-    </div>`).join("")}
-    </div>`;
-  }
-
-  if(!missing.length && !autoMatch.length){
-    html = '<div style="font-size:12px;color:#16a34a;padding:8px 0">✅ 진행 중인 모든 현장에 이메일이 등록되어 있습니다.</div>';
-  }
-
-  el.innerHTML = html;
-}
-
-function deleteProjectFromMissing(pid){
-  const p = projects.find(x=>x.id===pid);
-  if(!p) return;
-  const label = `${p.customerName}${p.aptName?' · '+p.aptName:''}`;
-  if(!confirm(`"${label}" 현장을 삭제하시겠습니까?\n\n연결된 청구서·주문 데이터도 함께 삭제됩니다.`)) return;
-  projects = projects.filter(x=>x.id!==pid);
-  allBills = allBills.filter(x=>x.projectId!==pid);
-  saveData();
-  renderEmailMissingList();
-}
-
-function applyMasterEmail(pid){
-  const p = projects.find(x=>x.id===pid);
-  if(!p) return;
-  const normName = s => String(s||"").replace(/[㈜\(\)주유\s]/g,"").toLowerCase();
-  const found = companyMaster.find(c=>{
-    const nM=normName(c.name), nP=normName(p.customerName);
-    return nM===nP||(nM.length>=2&&nP.length>=2&&(nM.includes(nP)||nP.includes(nM)));
-  });
-  if(!found) return;
-  p.contactEmail = found.email;
-  saveData();
-  renderEmailMissingList();
-}
-
-function applyAllMasterEmail(){
-  const normName = s => String(s||"").replace(/[㈜\(\)주유\s]/g,"").toLowerCase();
-  let count = 0;
-  projects.forEach(p=>{
-    if(p.contactEmail || p.status==="완료") return;
-    const found = companyMaster.find(c=>{
-      const nM=normName(c.name), nP=normName(p.customerName);
-      return nM===nP||(nM.length>=2&&nP.length>=2&&(nM.includes(nP)||nP.includes(nM)));
-    });
-    if(found){ p.contactEmail = found.email; count++; }
-  });
-  saveData();
-  renderEmailMissingList();
-  if(count) alert(`✅ ${count}건 이메일 자동 입력 완료`);
-}
 
 function renderCompanyMasterList(){
   const el = document.getElementById('cm-list');
@@ -3186,7 +3054,6 @@ function deleteCompanyMaster(idx){
 function renderSettings(){
   document.getElementById("page-8").innerHTML = buildSettingsHtml();
   renderFbSection();
-  renderEmailMissingList();
   renderCompanyMasterList();
 }
 
@@ -3246,15 +3113,6 @@ function buildSettingsHtml(){
 
   return `
   <p class="sec-title">⚙️ 설정</p>
-
-  <!-- 이메일 미등록 현장 점검 -->
-  <div class="card" style="margin-bottom:16px">
-    <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:10px;display:flex;align-items:center;gap:6px">
-      📧 이메일 미등록 현장 점검
-      <span id="email-missing-badge" style="margin-left:auto;font-size:12px;font-weight:700"></span>
-    </div>
-    <div id="email-missing-list"></div>
-  </div>
 
   <!-- n8n 자동 발송 설정 -->
   <div class="card" style="margin-bottom:16px">
@@ -3784,7 +3642,7 @@ async function ordDownloadBillXlsx(pid){
     const blob = await zip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:6}});
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href=url; a.download=`특허기술자문료요청서_${aptName||"현장"}_${yyyy}${mm}${dd}.xlsx`;
+    a.href=url; a.download=`특허기술자문료요청서_${aptName||"현장"}_${p.customerName||""}.xlsx`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
   } catch(err){
