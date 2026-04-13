@@ -497,8 +497,9 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f0
     <div class="modal-body">
       <input type="hidden" id="o-edit-pid" value=""/>
       <input type="hidden" id="o-edit-oid" value=""/>
-      <div class="field"><label>주문일 *</label><input id="o-date" type="date"/></div>
       <div class="field"><label>금액(원) *</label><input id="o-amount" type="number" placeholder="주문 금액 입력"/></div>
+      <div class="field"><label>🧾 계산서 발행일</label><input id="o-invdate" type="date"/></div>
+      <div class="field"><label>주문일 <span style="font-size:11px;color:#9ca3af;font-weight:400">(선택)</span></label><input id="o-date" type="date"/></div>
       <div id="o-project-field"><label style="display:block;font-size:12px;font-weight:600;color:#4b5563;margin-bottom:5px">고객사(현장) *</label>
         <div style="position:relative">
           <input type="text" id="o-project-search" placeholder="고객사명 입력 후 선택..." autocomplete="off"
@@ -509,7 +510,6 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f0
         <input type="hidden" id="o-project-id"/>
         <div id="o-project-selected" style="display:none;margin-top:6px;background:#eff6ff;border-radius:6px;padding:5px 10px;font-size:12px;color:#1d4ed8"></div>
       </div>
-      <div class="field"><label>계산서 발행일</label><input id="o-invdate" type="date"/></div>
       <div class="field"><label>입금일</label><input id="o-depdate" type="date"/></div>
       <div class="btn-row">
         <button class="btn btn-primary" style="flex:1" id="o-submit-btn" onclick="submitOrder()">추가</button>
@@ -1206,6 +1206,8 @@ let ordFilter = "all";      // all | patent | noinv | nodep | late | done
 let ordSearch = "";
 let ordExpandedIds = new Set();
 let ordShowCompleted = false;
+let ordPage = 1;
+const ORD_PAGE_SIZE = 25;
 let ordPopPid = null, ordPopOid = null, ordPopField = null;
 let ordBillPid = null;
 let ordInlineAddPid = null;
@@ -1269,7 +1271,6 @@ function ordPatentBarHTML(c, bid){
 function ordPatentBadgeHTML(c, type){
   if(type==="컨설팅"||type==="기타"||type==="공고") return `<span class="pbadge2 pb2-none" style="white-space:nowrap">해당없음</span>`;
   if(c.pct>=2) return `<span class="pbadge2 pb2-ok" style="white-space:nowrap">✅ 없음</span>`;
-  if(c.pct>=1.5) return `<span class="pbadge2 pb2-close" style="white-space:nowrap">⚠️ ${ordFmtAmt(c.patentFee)}</span>`;
   if(c.threshold>0) return `<span class="pbadge2 pb2-due" style="white-space:nowrap">🔖 ${ordFmtAmt(c.patentFee)}</span>`;
   return `<span class="pbadge2 pb2-none">-</span>`;
 }
@@ -1299,7 +1300,7 @@ function ordDetailHTML(p){
   } else {
     const hdr=`<div style="display:flex;align-items:center;gap:8px;padding:5px 14px;background:#ede9fe;font-size:10px;font-weight:700;color:var(--purple);border-bottom:1px solid #ddd6fe">
       <span style="flex-shrink:0;width:20px">#</span>
-      <span style="flex-shrink:0;width:72px">주문일</span>
+      <span style="flex-shrink:0;width:72px">주문일<span style="font-size:9px;color:#a78bfa;font-weight:400;margin-left:2px">(선택)</span></span>
       <span style="flex-shrink:0;width:88px;text-align:right">금액</span>
       <span style="flex:1;padding-left:8px;border-left:1px solid #ddd6fe">🧾 계산서발행일</span>
       <span style="flex:1;padding-left:8px;border-left:1px solid #ddd6fe">💳 입금일</span>
@@ -1376,6 +1377,18 @@ function renderOrders(){
 
   const data = ordGetFiltered();
 
+  // ── 준공일 가까운 순 정렬 ──
+  data.sort((a, b) => {
+    const da = a.expectedCompletionDate || "9999-12-31";
+    const db = b.expectedCompletionDate || "9999-12-31";
+    return da < db ? -1 : da > db ? 1 : 0;
+  });
+
+  // ── 페이지네이션 ──
+  const ordTotalPages = Math.max(1, Math.ceil(data.length / ORD_PAGE_SIZE));
+  if(ordPage > ordTotalPages) ordPage = ordTotalPages;
+  const paged = data.slice((ordPage - 1) * ORD_PAGE_SIZE, ordPage * ORD_PAGE_SIZE);
+
   const fCm = {all:"on",patent:"on-purple",noinv:"on-orange",nodep:"on-red",late:"on-red",done:"on-green"};
   const fOn = k => ordFilter===k ? fCm[k]||"on" : "";
 
@@ -1393,10 +1406,11 @@ function renderOrders(){
         <div style="position:relative;flex:1">
           <span style="position:absolute;left:9px;top:50%;transform:translateY(-50%);font-size:12px;pointer-events:none">🔍</span>
           <input type="text" id="ord-quick-input"
-            style="width:100%;border:none;outline:none;padding:6px 10px 6px 28px;font-size:12px;font-family:inherit;background:transparent;min-width:0;ime-mode:active"
+            style="width:100%;border:none;outline:none;padding:6px 10px 6px 28px;font-size:12px;font-family:inherit;background:transparent;min-width:0"
             placeholder="아파트명 · 고객사명 입력 (2글자 이상)..."
             lang="ko" inputmode="text"
-            oninput="ordQuickSearch(this.value)" autocomplete="off"/>
+            oninput="ordQuickSearch(this.value)" autocomplete="off"
+            onfocus="this.setAttribute('lang','ko');try{document.execCommand('setInputMethod','ko');}catch(e){}"/>
           <div id="ord-quick-dropdown" style="display:none;position:absolute;top:calc(100% + 4px);left:-120px;right:-140px;background:#fff;border:1.5px solid #a5b4fc;border-radius:10px;box-shadow:0 4px 16px rgba(67,56,202,.15);z-index:300;max-height:200px;overflow-y:auto"></div>
         </div>
         <span id="ord-quick-hint" style="flex-shrink:0;padding:6px 11px;font-size:11px;color:var(--gray-400);white-space:nowrap;border-left:1px solid #e5e7eb">← 현장 선택 후 주문 추가</span>
@@ -1453,7 +1467,7 @@ function renderOrders(){
   } else if(!data.length){
     html+=`<div class="info-box info-gray" style="text-align:center;padding:16px">${ordSearch?`"${ordSearch}" 검색 결과가 없습니다.`:"조건에 맞는 현장이 없습니다."}</div>`;
   } else {
-    html+=`<div style="font-size:11px;color:var(--gray-400);margin-bottom:6px">${data.length}개 현장 · 총 ${data.reduce((s,p)=>s+p.orders.length,0)}건</div>
+    html+=`<div style="font-size:11px;color:var(--gray-400);margin-bottom:6px">전체 <b style="color:#374151">${data.length}개</b> 현장 · 페이지 ${ordPage}/${ordTotalPages} (${(ordPage-1)*ORD_PAGE_SIZE+1}–${Math.min(ordPage*ORD_PAGE_SIZE,data.length)}번째)</div>
     <div style="overflow-x:auto;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.07)">
     <table class="site-tbl2">
       <thead><tr>
@@ -1466,7 +1480,7 @@ function renderOrders(){
         <th style="width:28px"></th>
       </tr></thead>
       <tbody>
-      ${data.map(p=>{
+      ${paged.map(p=>{
         const c = ordCalc(p);
         const exp = ordExpandedIds.has(p.id);
         const tcol = {기술자재형:"b-purple",자재판매형:"b-orange",컨설팅:"b-blue"}[p.constructionType]||"b-gray";
@@ -1491,7 +1505,19 @@ function renderOrders(){
       }).join("")}
       </tbody>
     </table>
-    </div>`;
+    </div>
+    ${data.length > ORD_PAGE_SIZE ? `
+    <div style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:12px;flex-wrap:wrap">
+      <button onclick="ordPage=1;renderOrders()" ${ordPage===1?'disabled':''} style="padding:5px 10px;border-radius:7px;border:1px solid #e5e7eb;background:${ordPage===1?'#f9fafb':'#fff'};color:${ordPage===1?'#d1d5db':'#374151'};cursor:${ordPage===1?'default':'pointer'};font-size:12px;font-family:inherit">◀◀</button>
+      <button onclick="ordPage=Math.max(1,ordPage-1);renderOrders()" ${ordPage===1?'disabled':''} style="padding:5px 10px;border-radius:7px;border:1px solid #e5e7eb;background:${ordPage===1?'#f9fafb':'#fff'};color:${ordPage===1?'#d1d5db':'#374151'};cursor:${ordPage===1?'default':'pointer'};font-size:12px;font-family:inherit">◀ 이전</button>
+      ${Array.from({length:ordTotalPages},(_, i)=>i+1).filter(n=>n===1||n===ordTotalPages||Math.abs(n-ordPage)<=2).reduce((acc,n,i,arr)=>{
+        if(i>0&&n-arr[i-1]>1) acc.push('<span style="padding:0 4px;color:#9ca3af">…</span>');
+        acc.push(\`<button onclick="ordPage=\${n};renderOrders()" style="padding:5px 10px;border-radius:7px;border:1px solid \${n===ordPage?'#4338ca':'#e5e7eb'};background:\${n===ordPage?'#4338ca':'#fff'};color:\${n===ordPage?'#fff':'#374151'};cursor:pointer;font-size:12px;font-weight:\${n===ordPage?'700':'400'};font-family:inherit">\${n}</button>\`);
+        return acc;
+      },[]).join('')}
+      <button onclick="ordPage=Math.min(ordTotalPages,ordPage+1);renderOrders()" ${ordPage===ordTotalPages?'disabled':''} style="padding:5px 10px;border-radius:7px;border:1px solid #e5e7eb;background:${ordPage===ordTotalPages?'#f9fafb':'#fff'};color:${ordPage===ordTotalPages?'#d1d5db':'#374151'};cursor:${ordPage===ordTotalPages?'default':'pointer'};font-size:12px;font-family:inherit">다음 ▶</button>
+      <button onclick="ordPage=ordTotalPages;renderOrders()" ${ordPage===ordTotalPages?'disabled':''} style="padding:5px 10px;border-radius:7px;border:1px solid #e5e7eb;background:${ordPage===ordTotalPages?'#f9fafb':'#fff'};color:${ordPage===ordTotalPages?'#d1d5db':'#374151'};cursor:${ordPage===ordTotalPages?'default':'pointer'};font-size:12px;font-family:inherit">▶▶</button>
+    </div>` : ''}\`;
   }
 
   const wasSearchFocused = document.activeElement && document.activeElement.id === "ord-search-input";
@@ -1538,11 +1564,13 @@ document.addEventListener('click', e=>{
 let _ordSearchTimer = null;
 function ordSearchInput(val){
   ordSearch = val;
+  ordPage = 1;
   clearTimeout(_ordSearchTimer);
   _ordSearchTimer = setTimeout(renderOrders, 250);
 }
 function ordSetFilter(mode){
   ordFilter = mode;
+  ordPage = 1;
   renderOrders();
 }
 
@@ -1570,7 +1598,7 @@ function ordSaveInlineAdd(pid){
   const amount = Number((document.getElementById(`oi-amt-${pid}`)||{}).value||0);
   const invoiceDate = (document.getElementById(`oi-inv-${pid}`)||{}).value||"";
   const depositDate = (document.getElementById(`oi-dep-${pid}`)||{}).value||"";
-  if(!date||!amount) return alert("주문일과 금액을 입력하세요.");
+  if(!amount) return alert("금액을 입력하세요.");
   const p = projects.find(x=>x.id===pid);
   if(!p) return;
   p.orders.push({id:Date.now(),date,item:"자재",qty:1,unitPrice:amount,amount,invoiceDate,depositDate});
@@ -1761,22 +1789,25 @@ let billingSearch = "";
 let billingFilter = "all"; // "all" | "material" | "patent"
 let billingShowCompleted = false; // 청구서 탭: 완료현장 표시 여부
 
-function renderBilling(){
-  // 청구 가능한 현장만 (금액 > 0) + 기본적으로 완료현장 제외
+
+function getBillableFiltered(){
   const billable = projects.filter(p => {
     const b = calcBilling(p);
     return (b.materialAmt > 0 || b.patentAmt > 0) && (billingShowCompleted || p.status !== "완료");
   });
-  const completedBillable = projects.filter(p => {
-    const b = calcBilling(p);
-    return (b.materialAmt > 0 || b.patentAmt > 0) && p.status === "완료";
-  }).length;
-
-  // 검색 + 필터 적용
   let filtered = billable;
   if(billingSearch) filtered = filtered.filter(p => p.customerName.includes(billingSearch) || (p.aptName && p.aptName.includes(billingSearch)));
   if(billingFilter === "material") filtered = filtered.filter(p => calcBilling(p).materialAmt > 0);
   if(billingFilter === "patent")   filtered = filtered.filter(p => calcBilling(p).patentAmt > 0);
+  return {billable, filtered};
+}
+
+function renderBilling(){
+  const {billable} = getBillableFiltered();
+  const completedBillable = projects.filter(p => {
+    const b = calcBilling(p);
+    return (b.materialAmt > 0 || b.patentAmt > 0) && p.status === "완료";
+  }).length;
 
   const btnBase = "padding:7px 14px;border-radius:8px;border:none;cursor:pointer;font-size:12px;font-weight:500;font-family:inherit;";
   const btnActive = btnBase + "background:#4338ca;color:#fff;";
@@ -1810,15 +1841,7 @@ function renderBilling(){
 }
 
 function renderBillingList(){
-  const billable = projects.filter(p => {
-    const b = calcBilling(p);
-    return (b.materialAmt > 0 || b.patentAmt > 0) && (billingShowCompleted || p.status !== "완료");
-  });
-
-  let filtered = billable;
-  if(billingSearch) filtered = filtered.filter(p => p.customerName.includes(billingSearch) || (p.aptName && p.aptName.includes(billingSearch)));
-  if(billingFilter === "material") filtered = filtered.filter(p => calcBilling(p).materialAmt > 0);
-  if(billingFilter === "patent")   filtered = filtered.filter(p => calcBilling(p).patentAmt > 0);
+  const {billable, filtered} = getBillableFiltered();
 
   const el = document.getElementById("billing-list-area");
   if(!el) return;
@@ -1883,7 +1906,6 @@ function renderBillingList(){
       if(materialPending) actionBtns += `<button class="btn btn-blue btn-sm" style="padding:3px 7px;font-size:11px" onclick="openBillPreview(${p.id},'material')">자재(월)</button> `;
       if(patentPending)   actionBtns += `<button class="btn btn-purple btn-sm" style="padding:3px 7px;font-size:11px" onclick="openBillPreview(${p.id},'patent')">특허료</button> `;
     }
-    actionBtns += `<button class="btn btn-gray btn-sm" style="padding:3px 7px;font-size:11px" title="PDF 출력" onclick="printBill(${p.id})">🖨️</button>`;
 
     const completedStyle = p.status==='완료' ? 'border-left:3px solid #4ade80;opacity:0.8' : '';
     html += `<div class="blist-row" style="${completedStyle}">
@@ -2029,9 +2051,10 @@ function renderUnpaid(){
       // ── 자재계산서 미입금 ──
       const refLabel = item.latestInvoiceDate||"-";
       const multiNote = item.orders.length>1 ? ` (${item.orders.length}건)` : "";
+      // 입금일은 자재주문 탭에서 입력 → 여기선 읽기 전용 표시
       const depositInputs = item.orders.length===1
-        ? `<div class="up-field"><label>입금일</label><input type="date" value="${item.orders[0].depositDate||""}" onchange="updateOrderDepositDate(${item.projectId},${item.orders[0].id},this.value)" onclick="event.stopPropagation()"/></div>`
-        : `<div class="up-field"><label>일괄 입금일 적용</label><input type="date" value="" onchange="updateAllOrdersDepositDate(${item.projectId},this.value)" onclick="event.stopPropagation()"/></div>`;
+        ? `<div class="up-field"><label>입금일 <span style="font-size:10px;color:#9ca3af">(자재주문에서 입력)</span></label><input type="date" value="${item.orders[0].depositDate||""}" readonly style="background:#f3f4f6;color:#6b7280"/></div>`
+        : `<div class="up-field"><label>입금일 현황 <span style="font-size:10px;color:#9ca3af">(자재주문에서 입력)</span></label><div style="font-size:12px;color:#6b7280;padding:6px 0">${item.orders.map((o,i)=>`${i+1}차: ${o.depositDate||'<span style="color:#dc2626">미입금</span>'}`).join(' &nbsp;·&nbsp; ')}</div></div>`;
 
       html+=`<tr class="data-row" onclick="upToggle('${rowId}')" data-age="${days??-1}">
         <td><span id="${rowId}-arr" style="font-size:10px;color:#9ca3af">▶</span></td>
@@ -2052,9 +2075,7 @@ function renderUnpaid(){
           <div class="up-expand-inner" style="grid-template-columns:140px 1fr auto" onclick="event.stopPropagation()">
             <div class="up-field"><label>계산서 발행일 (최근)</label><input type="date" value="${item.latestInvoiceDate||""}" readonly style="background:#f3f4f6;color:#6b7280"/></div>
             ${depositInputs}
-            <div class="up-expand-btns">
-              <button class="btn btn-gray btn-sm" onclick="event.stopPropagation();printBillById && printBillById()">🖨️ PDF</button>
-            </div>
+
           </div>
         </td>
       </tr>`;
@@ -4973,7 +4994,7 @@ function submitOrder(){
 
   if(editPid && editOid){
     // 수정 모드
-    if(!date||!amount) return alert("주문일과 금액은 필수입니다.");
+    if(!amount) return alert("금액은 필수입니다.");
     const p = projects.find(x=>x.id===Number(editPid));
     if(!p) return;
     const o = p.orders.find(x=>x.id===Number(editOid));
@@ -4991,7 +5012,7 @@ function submitOrder(){
   } else {
     // 추가 모드
     const pid = document.getElementById("o-project-id").value;
-    if(!date||!amount||!pid) return alert("주문일, 금액, 현장을 모두 입력하세요.");
+    if(!amount||!pid) return alert("금액과 현장을 입력하세요.");
     const p = projects.find(x=>x.id===Number(pid));
     if(!p) return;
     p.orders.push({id:Date.now(),date,item:"자재",qty:1,unitPrice:Number(amount),amount:Number(amount),invoiceDate:invdate,depositDate:depdate});
