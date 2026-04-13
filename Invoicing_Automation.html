@@ -909,7 +909,7 @@ function renderProjects(){
     const cls = projFilterStatus===s ? (s==="완료"?"active-green":s==="유찰"?"active-orange":s==="취소"?"active-red":"active") : "";
     return `<button class="pfbtn${cls?" "+cls:""}" onclick="setProjFilter('status','${s}',this)">${s}</button>`;
   }).join("");
-  const typeBtns = ["전체","공고","기술자재형","자재판매형","컨설팅","기타"].map(t=>{
+  const typeBtns = ["전체","공고","기술자재형","자재판매형","타공법","컨설팅","기타"].map(t=>{
     const icons={"공고":"⬜","기술자재형":"🟣","자재판매형":"🟠","컨설팅":"🔵","기타":"🟢"};
     const cls = projFilterType===t ? (t==="기술자재형"?"active-purple":t==="자재판매형"?"active-orange":t==="공고"?"active":"active") : "";
     return `<button class="pfbtn${cls?" "+cls:""}" onclick="setProjFilter('type','${t}',this)">${icons[t]||""}${icons[t]?" ":""}${t}</button>`;
@@ -1462,7 +1462,7 @@ function renderOrders(){
         <th style="text-align:right;white-space:nowrap">낙찰금액</th>
         <th style="min-width:95px">📦 자재 누계</th>
         <th style="min-width:65px;text-align:center">특허료</th>
-        <th style="text-align:center;width:55px">청구</th>
+        <th style="text-align:center;width:55px">요청서</th>
         <th style="width:28px"></th>
       </tr></thead>
       <tbody>
@@ -1481,7 +1481,7 @@ function renderOrders(){
           <td class="sc2">${ordPatentBarHTML(c,p.bidPrice)}</td>
           <td class="sc2" style="text-align:center">${ordPatentBadgeHTML(c,p.constructionType)}</td>
           <td class="sc2" style="text-align:center" onclick="event.stopPropagation()">
-            <button class="bill-btn2" style="padding:4px 8px" onclick="ordOpenBill(${p.id})">청구</button>
+            <button class="bill-btn2" style="padding:4px 8px" onclick="ordOpenBill(${p.id})">요청서</button>
           </td>
           <td style="padding:2px 4px;text-align:center;vertical-align:middle"><button class="exp-btn2">▶</button></td>
         </tr>
@@ -1653,10 +1653,11 @@ function ordOpenBill(pid){
   if(!p) return;
   const bid = Number(p.bidPrice)||0;
   const totalAmt = p.orders.reduce((a,o)=>a+(Number(o.amount)||0),0);
-  const base = Math.round(bid*0.02);
+  const base = bid*0.02;
   const deduct = totalAmt;
   const remain = base - deduct;
   const patentFee = Math.round(remain>0?remain/2:0);
+  const baseRounded = Math.round(base);
   const isNoPatent = totalAmt >= base;
   const todayFull = new Date().toLocaleDateString("ko-KR",{year:"numeric",month:"long",day:"numeric"});
   const yr = new Date().getFullYear();
@@ -1671,7 +1672,7 @@ function ordOpenBill(pid){
     ℹ️ 컨설팅/기타 형태는 특허료 대신 자재대금 전액(${ordFmtAmt(totalAmt)})이 청구됩니다.
   </div>`:""}
   ${!isConsulting&&isNoPatent?`<div style="padding:10px 14px;background:var(--green-light);border-radius:8px;font-size:12px;color:var(--green);margin-bottom:12px;font-weight:600">
-    ✅ 자재 누계(${ordFmtAmt(totalAmt)})가 낙찰가의 2%(${ordFmtAmt(base)})를 초과하여 특허료 청구 대상이 아닙니다.
+    ✅ 자재 누계(${ordFmtAmt(totalAmt)})가 낙찰가의 2%(${ordFmtAmt(baseRounded)})를 초과하여 특허료 청구 대상이 아닙니다.
   </div>`:""}
   <div style="border:1px solid var(--gray-200);border-radius:10px;overflow:hidden;font-family:'Malgun Gothic',serif;font-size:12px" id="ord-doc-preview">
     <div class="doc2-company">주 식 회 사 &nbsp; 넷 폼 알 앤 디</div>
@@ -1699,12 +1700,12 @@ function ordOpenBill(pid){
       <tbody>
         <tr><td class="lbl-cell">낙찰금액 × 2%<br><span style="font-size:10px;color:var(--gray-400)">(특허기술자문료 기준)</span></td>
             <td style="font-size:11px;color:var(--gray-600)">${ordFmtAmt(bid)} × 2%</td>
-            <td class="right">${ordFmtAmt(base)} 원</td></tr>
+            <td class="right">${ordFmtAmt(baseRounded)} 원</td></tr>
         <tr><td class="lbl-cell">자재판매금액 차감<br><span style="font-size:10px;color:var(--gray-400)">(VAT 별도)</span></td>
             <td style="font-size:11px;color:var(--gray-600)">자재 누계 ${ordFmtAmt(totalAmt)}</td>
             <td class="right" style="color:var(--red)">-${ordFmtAmt(deduct)} 원</td></tr>
         <tr><td class="lbl-cell">자재 이용 잔여금액</td>
-            <td style="font-size:11px;color:var(--gray-600)">${ordFmtAmt(base)} - ${ordFmtAmt(deduct)}</td>
+            <td style="font-size:11px;color:var(--gray-600)">${ordFmtAmt(baseRounded)} - ${ordFmtAmt(deduct)}</td>
             <td class="right">${ordFmtAmt(remain>0?remain:0)} 원</td></tr>
         <tr class="trow2"><td class="lbl-cell" style="font-weight:800">특허기술자문료 실 청구액<br><span style="font-size:10px;font-weight:400">(잔여금액의 50%)</span></td>
             <td style="font-size:11px">${ordFmtAmt(remain>0?remain:0)} × 50%</td>
@@ -1862,7 +1863,7 @@ function renderBillingList(){
   displayFiltered.forEach(p => {
     const b = calcBilling(p);
     const dl = daysLeft(p.expectedCompletionDate);
-    const isExec = p.constructionType === "컨설팅" || p.constructionType === "기타" || p.constructionType === "공고";
+    const isExec = p.constructionType === "컨설팅" || p.constructionType === "기타" || p.constructionType === "공고" || p.constructionType === "타공법";
     const issued = issuedTypeMap[p.id] || new Set();
     const materialPending = b.materialAmt > 0 && !issued.has("자재대금");
     const patentPending   = b.patentAmt   > 0 && !issued.has("특허료");
