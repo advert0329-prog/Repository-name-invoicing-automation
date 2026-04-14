@@ -1210,6 +1210,8 @@ let ordPopPid = null, ordPopOid = null, ordPopField = null;
 let ordBillPid = null;
 let ordInlineAddPid = null;
 let ordQuickVal = "";
+let ordPage = 1;
+const ORD_PAGE_SIZE = 10;
 
 // 날짜 → 오늘과의 일수 차이
 const ordDfToday = d => { if(!d) return null; const dt=new Date(d); if(isNaN(dt.getTime())) return null; return Math.round((new Date(todayStr())-dt)/86400000); };
@@ -1388,7 +1390,7 @@ function renderOrders(){
     <p class="sec-title" style="margin:0">📦 자재 주문 관리 v3</p>
     <div style="display:flex;gap:6px;align-items:center">
       <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11px;color:#374151;user-select:none;padding:5px 10px;background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb">
-        <input type="checkbox" ${ordShowCompleted?"checked":""} onchange="ordShowCompleted=this.checked;renderOrders()" style="width:13px;height:13px;cursor:pointer"/>
+        <input type="checkbox" ${ordShowCompleted?"checked":""} onchange="ordShowCompleted=this.checked;ordPage=1;renderOrders()" style="width:13px;height:13px;cursor:pointer"/>
         완료현장 포함${completedCnt>0?` <span style="color:var(--green)">(${completedCnt})</span>`:""}
       </label>
       <div style="display:flex;align-items:center;background:#fff;border:1.5px solid #a5b4fc;border-radius:10px;overflow:visible;min-width:360px;position:relative">
@@ -1459,8 +1461,37 @@ function renderOrders(){
   } else if(!data.length){
     html+=`<div class="info-box info-gray" style="text-align:center;padding:16px">${ordSearch?`"${ordSearch}" 검색 결과가 없습니다.`:"조건에 맞는 현장이 없습니다."}</div>`;
   } else {
-    html+=`<div style="font-size:11px;color:var(--gray-400);margin-bottom:6px">${data.length}개 현장 · 총 ${data.reduce((s,p)=>s+p.orders.length,0)}건</div>
-    <div style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 360px);border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.07)">
+    // ── 준공일 오름차순 정렬 (날짜 없는 항목은 맨 뒤)
+    const sorted = [...data].sort((a,b)=>{
+      const da = a.expectedCompletionDate||"9999-99-99";
+      const db = b.expectedCompletionDate||"9999-99-99";
+      return da < db ? -1 : da > db ? 1 : 0;
+    });
+
+    // ── 페이지네이션
+    const totalCount = sorted.length;
+    const totalPages = Math.max(1, Math.ceil(totalCount / ORD_PAGE_SIZE));
+    if(ordPage > totalPages) ordPage = totalPages;
+    const pageData = sorted.slice((ordPage-1)*ORD_PAGE_SIZE, ordPage*ORD_PAGE_SIZE);
+
+    // ── 페이지네이션 HTML 생성 함수
+    const pgBtn = (p, label, disabled, active) =>
+      `<button class="ppage${active?' active':''}${disabled?' disabled':''}" ${disabled?'disabled':''} onclick="ordPage=${p};renderOrders()">${label}</button>`;
+    let pgHtml = '';
+    if(totalPages > 1){
+      pgHtml += pgBtn(ordPage-1,'◀', ordPage===1, false);
+      const start = Math.max(1, ordPage-2), end = Math.min(totalPages, ordPage+2);
+      if(start>1){ pgHtml+=pgBtn(1,'1',false,false); if(start>2) pgHtml+=`<span class="ppage ellipsis">…</span>`; }
+      for(let i=start;i<=end;i++) pgHtml+=pgBtn(i,i,false,i===ordPage);
+      if(end<totalPages){ if(end<totalPages-1) pgHtml+=`<span class="ppage ellipsis">…</span>`; pgHtml+=pgBtn(totalPages,totalPages,false,false); }
+      pgHtml += pgBtn(ordPage+1,'▶', ordPage===totalPages, false);
+    }
+
+    html+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <span style="font-size:11px;color:var(--gray-400)">${totalCount}개 현장 · 총 ${data.reduce((s,p)=>s+p.orders.length,0)}건 &nbsp;·&nbsp; <span style="color:var(--indigo);font-weight:600">${ordPage}/${totalPages} 페이지</span></span>
+      <span style="font-size:10px;color:var(--gray-400)">🗓 준공일 빠른 순 정렬</span>
+    </div>
+    <div style="overflow-x:auto;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.07)">
     <table class="site-tbl2">
       <thead><tr>
         <th style="text-align:center;white-space:nowrap">형태</th>
@@ -1468,14 +1499,19 @@ function renderOrders(){
         <th style="text-align:right;white-space:nowrap">낙찰금액</th>
         <th style="min-width:95px">📦 자재 누계</th>
         <th style="min-width:65px;text-align:center">특허료</th>
+        <th style="white-space:nowrap;text-align:center">준공일</th>
         <th style="text-align:center;width:55px">요청서</th>
         <th style="width:28px"></th>
       </tr></thead>
       <tbody>
-      ${data.map(p=>{
+      ${pageData.map(p=>{
         const c = ordCalc(p);
         const exp = ordExpandedIds.has(p.id);
         const tcol = {기술자재형:"b-purple",자재판매형:"b-orange",컨설팅:"b-blue"}[p.constructionType]||"b-gray";
+        const endDate = p.expectedCompletionDate;
+        const daysLeft = endDate ? Math.round((new Date(endDate)-new Date(todayStr()))/86400000) : null;
+        const endColor = daysLeft===null ? 'var(--gray-400)' : daysLeft<0 ? 'var(--red)' : daysLeft<=14 ? '#ea580c' : 'var(--gray-600)';
+        const endLabel = endDate ? `<span style="color:${endColor};font-weight:${daysLeft!==null&&daysLeft<=14?'700':'400'}">${endDate}<br><span style="font-size:10px">${daysLeft===null?'':daysLeft<0?`D+${Math.abs(daysLeft)}`:`D-${daysLeft}`}</span></span>` : `<span style="color:var(--gray-400);font-size:11px">-</span>`;
         return `
         <tr class="site-row2${exp?" expanded":""}" id="osr-${p.id}" onclick="ordToggleExpand(${p.id})">
           <td class="sc2" style="text-align:center;white-space:nowrap">${badge(p.constructionType,tcol)}</td>
@@ -1486,18 +1522,20 @@ function renderOrders(){
           <td class="sc2" style="text-align:right;white-space:nowrap;font-weight:700;color:var(--indigo);font-size:11px">${ordFmtN(p.bidPrice||0)}원</td>
           <td class="sc2">${ordPatentBarHTML(c,p.bidPrice)}</td>
           <td class="sc2" style="text-align:center">${ordPatentBadgeHTML(c,p.constructionType)}</td>
+          <td class="sc2" style="text-align:center;font-size:11px;line-height:1.4">${endLabel}</td>
           <td class="sc2" style="text-align:center" onclick="event.stopPropagation()">
             <button class="bill-btn2" style="padding:4px 8px" onclick="ordOpenBill(${p.id})">요청서</button>
           </td>
           <td style="padding:2px 4px;text-align:center;vertical-align:middle"><button class="exp-btn2">▶</button></td>
         </tr>
         <tr class="order-sec2${exp?" open":""}" id="oos-${p.id}">
-          <td colspan="7" style="padding:0">${ordDetailHTML(p)}</td>
+          <td colspan="8" style="padding:0">${ordDetailHTML(p)}</td>
         </tr>`;
       }).join("")}
       </tbody>
     </table>
-    </div>`;
+    </div>
+    <div class="proj-pagination" style="margin-top:10px">${pgHtml}</div>`;
   }
 
   const wasSearchFocused = document.activeElement && document.activeElement.id === "ord-search-input";
@@ -1535,6 +1573,16 @@ function ordQuickSelect(pid){
   if(dd) dd.style.display='none';
   ordExpandedIds.add(pid);
   ordInlineAddPid = pid;
+  // 해당 현장이 속한 페이지로 이동
+  const all = projects.filter(q => ordShowCompleted || q.status !== "완료");
+  const filtered = ordGetFiltered();
+  const sorted = [...filtered].sort((a,b)=>{
+    const da = a.expectedCompletionDate||"9999-99-99";
+    const db = b.expectedCompletionDate||"9999-99-99";
+    return da<db?-1:da>db?1:0;
+  });
+  const idx = sorted.findIndex(x=>x.id===pid);
+  if(idx>=0) ordPage = Math.ceil((idx+1)/ORD_PAGE_SIZE);
   renderOrders();
   setTimeout(()=>{ const el=document.getElementById(`oos-${pid}`); if(el) el.scrollIntoView({behavior:'smooth',block:'center'}); },100);
 }
@@ -1546,11 +1594,13 @@ document.addEventListener('click', e=>{
 let _ordSearchTimer = null;
 function ordSearchInput(val){
   ordSearch = val;
+  ordPage = 1;
   clearTimeout(_ordSearchTimer);
   _ordSearchTimer = setTimeout(renderOrders, 250);
 }
 function ordSetFilter(mode){
   ordFilter = mode;
+  ordPage = 1;
   renderOrders();
 }
 
