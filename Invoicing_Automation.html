@@ -2843,7 +2843,7 @@ function downloadCompletedExcel(){
     "낙찰일","착공일","준공일","담당자이메일",
     "자재주문 횟수","자재주문금액(합계)","자재주문 일자·금액 전체(차수별)",
     "계산서발행 횟수","계산서발행금액(합계)","계산서 발행일·금액 전체(차수별)",
-    "입금완료 횟수","최종입금일","미수금액",
+    "입금완료 횟수","최종입금일","입금일·금액 전체(차수별)","미수금액",
     "특허료청구금액","특허료계산서발행일",
     "수금상태","비고",
     "※ 상세내역은 [자재주문상세] [청구서상세] [수금타임라인] 시트 참조"
@@ -2874,6 +2874,11 @@ function downloadCompletedExcel(){
       : "";
     const depositedAmt    = depositedOrders.reduce((s,o)=>s+o.amount,0);
     const unpaidOrderAmt  = invoicedOrders.filter(o=>!o.depositDate).reduce((s,o)=>s+o.amount,0);
+
+    // 차수별 입금일·금액 문자열
+    const depositDetail = depositedOrders.length > 0
+      ? depositedOrders.map((o,i)=>`${i+1}차: ${o.depositDate} / ${Number(o.amount||0).toLocaleString()}원`).join("\n")
+      : "";
 
     // 청구서에서 특허료 집계
     const projBills   = allBills.filter(b=>b.projectId===p.id);
@@ -2911,6 +2916,7 @@ function downloadCompletedExcel(){
       invoiceDetail,                   // 차수별 발행일·금액
       depositedOrders.length||0,       // 입금완료 횟수
       lastDepDate,                     // 최종입금일
+      depositDetail,                   // 차수별 입금일·금액
       unpaidOrderAmt||"",              // 미수금액
       patentAmt||"",
       patentInvDate,
@@ -2924,22 +2930,22 @@ function downloadCompletedExcel(){
   const sumBid    = completed.reduce((s,p)=>s+p.bidPrice,0);
   const sumOrder  = rows1.reduce((s,r)=>s+(Number(r[13])||0),0);
   const sumInv    = rows1.reduce((s,r)=>s+(Number(r[16])||0),0);
-  const sumUnpaid = rows1.reduce((s,r)=>s+(Number(r[20])||0),0);
-  const sumPatent = rows1.reduce((s,r)=>s+(Number(r[21])||0),0);
-  rows1.push(["합계","","","","","","",sumBid,"","","","","",sumOrder,"","",sumInv,"","","",sumUnpaid,sumPatent,"","","",""]);
+  const sumUnpaid = rows1.reduce((s,r)=>s+(Number(r[21])||0),0);
+  const sumPatent = rows1.reduce((s,r)=>s+(Number(r[22])||0),0);
+  rows1.push(["합계","","","","","","",sumBid,"","","","","",sumOrder,"","",sumInv,"","","","",sumUnpaid,sumPatent,"","","","",""]);
 
   const ws1 = XLSX.utils.aoa_to_sheet([header1, ...rows1]);
 
   // 차수별 상세 셀 줄바꿈 처리
   rows1.forEach((_, ri)=>{
-    [14, 17, 22].forEach(ci=>{
+    [14, 17, 20, 23].forEach(ci=>{
       const ref = XLSX.utils.encode_cell({r: ri+1, c: ci});
       if(ws1[ref] && ws1[ref].v) ws1[ref].s = { alignment: { wrapText: true, vertical: "top" } };
     });
   });
 
   // 열 너비
-  ws1["!cols"] = [5,10,8,18,14,14,14,13,10,10,10,22, 8,14,32, 8,14,32, 8,12,12, 14,22, 10,12,30].map(w=>({wch:w}));
+  ws1["!cols"] = [5,10,8,18,14,14,14,13,10,10,10,22, 8,14,32, 8,14,32, 8,12,32,12, 14,22, 10,12,30].map(w=>({wch:w}));
 
   // 헤더 행 스타일 (배경색 · 굵게)
   const hdrStyle = {font:{bold:true},fill:{fgColor:{rgb:"1E3A8A"}},
