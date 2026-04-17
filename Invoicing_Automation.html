@@ -484,6 +484,7 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f0
       <input type="hidden" id="f-edit-id" value=""/>
       <div class="btn-row">
         <button class="btn btn-primary" style="flex:1" id="f-submit-btn" onclick="submitProject()">등록</button>
+        <button class="btn btn-red" id="f-delete-btn" onclick="deleteProjectFromModal()" style="display:none">🗑️ 삭제</button>
         <button class="btn btn-gray" style="flex:1" onclick="closeModal('modal-project')">취소</button>
       </div>
     </div>
@@ -573,10 +574,26 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f0
       <button onclick="ordCloseBill()" style="background:none;border:none;cursor:pointer;font-size:20px;color:var(--gray-400);line-height:1">✕</button>
     </div>
     <div class="ord-bill-body" id="ord-bill-body"></div>
-    <div class="ord-bill-foot">
+    <div id="ord-bill-issued-banner" style="display:none;padding:10px 20px;background:#fef3c7;border-top:1px solid #fde68a;font-size:12px;color:#92400e;line-height:1.5"></div>
+    <div class="ord-bill-foot" style="flex-wrap:wrap;gap:10px">
+      <div style="display:flex;align-items:center;gap:14px;margin-right:auto;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:6px">
+          <label style="font-size:12px;color:var(--gray-600);font-weight:600;white-space:nowrap">발송일</label>
+          <input type="date" id="ord-bill-issued-date" style="border:1px solid #d1d5db;border-radius:6px;padding:5px 8px;font-size:12px;font-family:inherit;outline:none"/>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <label style="font-size:12px;color:var(--gray-600);font-weight:600;white-space:nowrap">공문번호</label>
+          <span style="font-size:12px;color:var(--gray-500);font-family:inherit">제</span>
+          <input type="text" id="ord-bill-doc-prefix" readonly style="border:1px solid #e5e7eb;background:#f9fafb;border-radius:6px;padding:5px 6px;font-size:12px;font-family:inherit;outline:none;width:82px;color:#6b7280;text-align:center" title="연도-월일 (발송일 기준 자동)"/>
+          <span style="font-size:12px;color:var(--gray-400);font-weight:700">-</span>
+          <input type="text" id="ord-bill-doc-seq" maxlength="2" inputmode="numeric" placeholder="01" style="border:1.5px solid #a5b4fc;border-radius:6px;padding:5px 6px;font-size:12px;font-family:inherit;outline:none;width:44px;text-align:center;font-weight:700" title="공문대장에서 확인한 오늘의 순번 2자리"/>
+          <span style="font-size:12px;color:var(--gray-500);font-family:inherit">호</span>
+        </div>
+      </div>
       <button class="btn btn-gray" onclick="ordCloseBill()">닫기</button>
-      <button class="btn btn-primary" onclick="ordDownloadBillXlsx(ordBillPid)">📥 엑셀 다운로드</button>
-      <button class="btn" style="background:var(--green);color:#fff" onclick="ordPrintBill()">🖨️ PDF 출력</button>
+      <button class="btn btn-primary" onclick="ordDownloadBillWithDoc()">📥 엑셀만</button>
+      <button class="btn" style="background:var(--gray-600);color:#fff" onclick="ordPrintBill()">🖨️ PDF만</button>
+      <button class="btn" id="ord-bill-issue-btn" style="background:var(--green);color:#fff;font-weight:700" onclick="ordIssuePatentBill()">✅ 발행 확정 + 엑셀 + 메일</button>
     </div>
   </div>
 </div>
@@ -846,7 +863,7 @@ function renderDashboard(){
           </div>
         </div>
         <div style="text-align:right;flex-shrink:0">
-          <button class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none;padding:5px 11px;font-size:12px;font-weight:600;border-radius:6px;cursor:pointer" onclick="openBillPreview(${p.id},'patent')">청구하기</button>
+          <button class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none;padding:5px 11px;font-size:12px;font-weight:600;border-radius:6px;cursor:pointer" onclick="ordOpenBill(${p.id})">청구하기</button>
         </div>
       </div>`;
     });
@@ -1057,8 +1074,7 @@ function renderProjectCard(p){
       </div>
       <div style="display:flex;gap:4px;flex-shrink:0">
         ${guideBtn}
-        <button class="btn btn-gray btn-sm" onclick="openEditProject(${p.id})">✏️</button>
-        <button class="btn btn-red btn-sm" onclick="deleteProject(${p.id})">🗑️</button>
+        <button class="btn btn-gray btn-sm" onclick="openEditProject(${p.id})" title="수정 / 삭제">✏️</button>
       </div>
     </div>
   </div>`;
@@ -1139,7 +1155,7 @@ function renderProjectsList(){
       const statColors={"진행중":"#1d4ed8","완료":"#15803d","대기":"#6b7280","유찰":"#c2410c","취소":"#dc2626"};
       html+=`<div style="overflow-x:auto"><table class="proj-list-table"><thead><tr>
         <th>공사형태</th><th>공종</th><th>아파트명</th><th>고객사명</th>
-        <th style="text-align:right">낙찰가</th><th>준공일</th><th>상태</th><th>안내문</th><th>액션</th><th>삭제</th>
+        <th style="text-align:right">낙찰가</th><th>준공일</th><th>상태</th><th>안내문</th><th>액션</th>
       </tr></thead><tbody>`;
       paged.forEach((p,i)=>{
         const flag = '';
@@ -1165,8 +1181,7 @@ function renderProjectsList(){
           })()}</td>
           <td><span style="color:${statColors[p.status]||'#374151'};font-weight:600;font-size:11px">${p.status||'-'}</span></td>
           <td style="text-align:center">${p.constructionType==='기술자재형'?(p.guideSentDate?'✅':'-'):'-'}</td>
-          <td><button class="btn btn-gray btn-sm" onclick="openEditProject(${p.id})" style="padding:3px 7px">✏️</button></td>
-          <td><button class="btn btn-red btn-sm" onclick="deleteProject(${p.id})" style="padding:3px 7px">🗑️</button></td>
+          <td><button class="btn btn-gray btn-sm" onclick="openEditProject(${p.id})" style="padding:3px 7px" title="수정 / 삭제">✏️</button></td>
         </tr>`;
       });
       html+=`</tbody></table></div>`;
@@ -1228,6 +1243,18 @@ function deleteProject(pid){
   saveData();
   renderProjects();
   showUndoToast(`"${p.aptName||p.customerName}" 현장이 삭제되었습니다.`);
+}
+
+function deleteProjectFromModal(){
+  const editId = document.getElementById("f-edit-id").value;
+  if(!editId) return;
+  const pid = parseInt(editId);
+  const p = projects.find(x=>x.id===pid);
+  if(!p) return;
+  const label = p.aptName||p.customerName;
+  if(!confirm(`"${label}" 현장을 정말 삭제하시겠습니까?\n\n관련 청구서 이력도 함께 삭제됩니다.\n(삭제 후 10초 이내 ↩ 되돌리기 가능)`)) return;
+  closeModal("modal-project");
+  deleteProject(pid);
 }
 
 function undoLast(){
@@ -1510,7 +1537,7 @@ function renderOrders(){
     <button class="ord-ftab ${fOn('nodep')}"  onclick="ordSetFilter('nodep')">💳 입금 대기</button>
     <button class="ord-ftab ${fOn('late')}"   onclick="ordSetFilter('late')">🔴 30일+ 미입금</button>
     <button class="ord-ftab ${fOn('done')}"   onclick="ordSetFilter('done')">✅ 완료</button>
-    <div style="margin-left:auto;font-size:11px;color:var(--gray-400)">▶ 클릭하면 주문 상세 펼침</div>
+    <div style="margin-left:auto;font-size:11px;color:var(--gray-400)">행 클릭 → 주문 상세 펼침</div>
   </div>`;
 
   // 테이블
@@ -1559,7 +1586,6 @@ function renderOrders(){
         <th style="min-width:65px;text-align:center">특허료</th>
         <th style="white-space:nowrap;text-align:center">준공일</th>
         <th style="text-align:center;width:55px">요청서</th>
-        <th style="width:28px"></th>
       </tr></thead>
       <tbody>
       ${pageData.map(p=>{
@@ -1584,10 +1610,9 @@ function renderOrders(){
           <td class="sc2" style="text-align:center" onclick="event.stopPropagation()">
             <button class="bill-btn2" style="padding:4px 8px" onclick="ordOpenBill(${p.id})">요청서</button>
           </td>
-          <td style="padding:2px 4px;text-align:center;vertical-align:middle"><button class="exp-btn2">▶</button></td>
         </tr>
         <tr class="order-sec2${exp?" open":""}" id="oos-${p.id}">
-          <td colspan="8" style="padding:0">${ordDetailHTML(p)}</td>
+          <td colspan="7" style="padding:0">${ordDetailHTML(p)}</td>
         </tr>`;
       }).join("")}
       </tbody>
@@ -1829,7 +1854,7 @@ function ordOpenBill(pid){
       </tbody></table>`}
       <div style="font-size:11px;color:var(--gray-500);margin-top:6px">※ 세금계산서는 추후 발행 예정입니다.</div>
       <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--gray-500);margin-top:14px;padding-top:10px;border-top:1px solid var(--gray-200)">
-        <span>문서번호 : 제 ${yr}-&nbsp;&nbsp;&nbsp;호</span>
+        <span>문서번호 : <span id="ord-doc-number-display">제 ${yr}-&nbsp;&nbsp;&nbsp;호</span></span>
         <span>시행일자 : ${todayFull}</span>
       </div>
     </div>
@@ -1838,7 +1863,123 @@ function ordOpenBill(pid){
       E-mail. netform@naver.com &nbsp;|&nbsp; https://www.netformrnd.com
     </div>
   </div>`;
+
+  // ── 발송일 필드 초기화 & 기발행 여부 확인 ──
+  ordRefreshIssueUI(p, isConsulting, isNoPatent);
+
   document.getElementById("ord-bill-overlay").classList.add("open");
+}
+
+// 발행 UI 상태 갱신 (발송일 기본값, 기발행 배너, 버튼 활성/비활성)
+function ordRefreshIssueUI(p, isConsulting, isNoPatent){
+  const dateInput = document.getElementById("ord-bill-issued-date");
+  const banner    = document.getElementById("ord-bill-issued-banner");
+  const issueBtn  = document.getElementById("ord-bill-issue-btn");
+  const docPrefix = document.getElementById("ord-bill-doc-prefix");
+  const docSeq    = document.getElementById("ord-bill-doc-seq");
+  if(!dateInput || !banner || !issueBtn) return;
+
+  // 기본값: 오늘
+  dateInput.value = todayStr();
+
+  // 공문번호 prefix 자동 계산 (발송일 기준) + 순번 비우기
+  if(docPrefix) docPrefix.value = ordDocPrefixFromDate(dateInput.value);
+  if(docSeq) docSeq.value = "";
+
+  // 미리보기 영역 문서번호 갱신 헬퍼
+  const updateDocDisplay = () => {
+    const display = document.getElementById("ord-doc-number-display");
+    if(!display) return;
+    const dStr = dateInput.value;
+    const sRaw = docSeq ? docSeq.value : "";
+    const doc = ordBuildDocNumber(dStr, sRaw);
+    if(doc){
+      display.textContent = doc;
+      display.style.color = "#111827";
+      display.style.fontWeight = "700";
+    } else {
+      const [y] = (dStr||"").split("-");
+      display.innerHTML = `제 ${y||""}-&nbsp;&nbsp;&nbsp;호`;
+      display.style.color = "";
+      display.style.fontWeight = "";
+    }
+  };
+
+  // 발송일 변경 → prefix 재계산 + 미리보기 갱신
+  dateInput.oninput = () => {
+    if(docPrefix) docPrefix.value = ordDocPrefixFromDate(dateInput.value);
+    updateDocDisplay();
+  };
+
+  // 순번 입력: 숫자 2자리만 + 실시간 미리보기
+  if(docSeq){
+    docSeq.oninput = (e) => {
+      let v = e.target.value.replace(/[^0-9]/g,"").slice(0,2);
+      e.target.value = v;
+      updateDocDisplay();
+    };
+    docSeq.onblur = (e) => {
+      const v = e.target.value.replace(/[^0-9]/g,"");
+      if(v && v.length===1){ e.target.value = "0" + v; updateDocDisplay(); }
+    };
+  }
+
+  updateDocDisplay();
+
+  // 이미 발행된 특허료 청구가 있는지 확인
+  const existingBill = allBills.find(b => b.projectId === p.id && b.type === "특허료");
+
+  // 특허료 비해당 케이스(컨설팅/기타/공고 or 자재 2% 초과)는 발행 불가
+  const isExecType = p.constructionType === "컨설팅" || p.constructionType === "기타" || p.constructionType === "공고" || p.constructionType === "타공법";
+
+  const setInputsDisabled = (disabled) => {
+    dateInput.disabled = disabled;
+    if(docPrefix) docPrefix.disabled = disabled;
+    if(docSeq) docSeq.disabled = disabled;
+  };
+
+  if(existingBill){
+    banner.style.display = "block";
+    banner.innerHTML = `⚠️ 이 현장은 <b>${existingBill.issuedDate}</b>에 이미 특허료 청구가 발행되었습니다 (${fmtNum(existingBill.amount)}원)${existingBill.docNumber?` · <b>${existingBill.docNumber}</b>`:''}.<br>재발행하시려면 <b>발행 이력 탭</b>에서 기존 건을 먼저 취소해주세요.`;
+    issueBtn.disabled = true;
+    issueBtn.style.opacity = "0.45";
+    issueBtn.style.cursor = "not-allowed";
+    issueBtn.title = "이미 발행된 청구가 있습니다";
+    setInputsDisabled(true);
+  } else if(isExecType){
+    banner.style.display = "block";
+    banner.style.background = "#dbeafe";
+    banner.style.borderTop = "1px solid #bfdbfe";
+    banner.style.color = "#1e40af";
+    banner.innerHTML = `ℹ️ 컨설팅/기타/공고 형태는 특허료 대신 <b>자재대금 전액</b>이 청구됩니다. 청구서 발행은 <b>청구서 발행 탭</b>에서 진행해주세요.`;
+    issueBtn.disabled = true;
+    issueBtn.style.opacity = "0.45";
+    issueBtn.style.cursor = "not-allowed";
+    issueBtn.title = "특허료 비해당 (자재대금 전액 청구)";
+    setInputsDisabled(true);
+  } else if(isNoPatent){
+    banner.style.display = "block";
+    banner.style.background = "#dcfce7";
+    banner.style.borderTop = "1px solid #86efac";
+    banner.style.color = "#166534";
+    banner.innerHTML = `✅ 자재 누계가 낙찰가의 2%를 초과하여 <b>특허료 청구 대상이 아닙니다</b>. 엑셀/PDF만 참고용으로 이용 가능합니다.`;
+    issueBtn.disabled = true;
+    issueBtn.style.opacity = "0.45";
+    issueBtn.style.cursor = "not-allowed";
+    issueBtn.title = "특허료 청구 대상 아님";
+    setInputsDisabled(true);
+  } else {
+    // 정상 발행 가능
+    banner.style.display = "none";
+    banner.style.background = "#fef3c7";
+    banner.style.borderTop = "1px solid #fde68a";
+    banner.style.color = "#92400e";
+    issueBtn.disabled = false;
+    issueBtn.style.opacity = "1";
+    issueBtn.style.cursor = "pointer";
+    issueBtn.title = "";
+    setInputsDisabled(false);
+  }
 }
 
 function ordCloseBill(e){
@@ -1870,6 +2011,142 @@ function ordPrintBill(){
   window.print();
   printArea.style.display = "none";
   printArea.innerHTML = "";
+}
+
+// ── 특허료 요청서 통합 발행 (발행 확정 + 엑셀 + 메일 모달) ──
+
+// 발송일(YYYY-MM-DD) → 공문번호 prefix "YYYY-MMDD"
+function ordDocPrefixFromDate(dateStr){
+  if(!dateStr) return "";
+  const [y,m,d] = dateStr.split("-");
+  if(!y||!m||!d) return "";
+  return `${y}-${m}${d}`;
+}
+
+// 공문번호 조합 "제 YYYY-MMDD-NN 호"
+function ordBuildDocNumber(dateStr, seq){
+  const prefix = ordDocPrefixFromDate(dateStr);
+  const s = String(seq||"").trim().padStart(2,"0");
+  if(!prefix || !s || s==="00") return "";
+  return `제 ${prefix}-${s} 호`;
+}
+
+// [📥 엑셀만] 버튼 - 모달 입력값을 읽어 엑셀 다운로드에 전달 (공문번호/발송일 반영)
+function ordDownloadBillWithDoc(){
+  const issuedDate = (document.getElementById("ord-bill-issued-date")||{}).value || todayStr();
+  const seqRaw = (document.getElementById("ord-bill-doc-seq")||{}).value || "";
+  const seq = seqRaw.replace(/[^0-9]/g,"");
+  // 공문번호가 비어있으면 그대로 다운로드 (참고용 출력)
+  const docNumber = seq ? ordBuildDocNumber(issuedDate, seq) : "";
+  return ordDownloadBillXlsx(ordBillPid, docNumber, issuedDate);
+}
+
+async function ordIssuePatentBill(){
+  const pid = ordBillPid;
+  if(!pid){ alert("현장 정보가 없습니다."); return; }
+  const p = projects.find(x=>x.id===pid);
+  if(!p) return;
+
+  // 재발행 방지 (UI에서도 막지만 안전장치로 한번 더)
+  const existing = allBills.find(b => b.projectId === pid && b.type === "특허료");
+  if(existing){
+    alert(`이미 ${existing.issuedDate}에 특허료 청구가 발행되었습니다.\n재발행하시려면 발행 이력 탭에서 기존 건을 먼저 취소해주세요.`);
+    return;
+  }
+
+  // 계산된 특허료 금액 (ordCalc 기준 - 요청서 모달과 동일한 값)
+  const c = ordCalc(p);
+  const amount = c.hasPatent ? c.patentFee : 0;
+  if(amount <= 0){
+    alert("특허료 청구 대상이 아닙니다.");
+    return;
+  }
+
+  // 사용자가 입력한 발송일 (기본값: 오늘)
+  const issuedDate = (document.getElementById("ord-bill-issued-date")||{}).value || todayStr();
+
+  // 공문번호 수집·검증
+  const seqRaw = (document.getElementById("ord-bill-doc-seq")||{}).value || "";
+  const seq = seqRaw.replace(/[^0-9]/g,"");
+  if(!seq){
+    alert("공문번호 순번을 입력해주세요.\n\n※ 사내 공문대장을 확인한 뒤, 오늘의 내 순번(01, 02, 03 …)을 입력하세요.");
+    const seqInput = document.getElementById("ord-bill-doc-seq");
+    if(seqInput) seqInput.focus();
+    return;
+  }
+  const docNumber = ordBuildDocNumber(issuedDate, seq);
+  if(!docNumber){
+    alert("공문번호 형식이 올바르지 않습니다. 발송일과 순번을 확인해주세요.");
+    return;
+  }
+
+  const label = p.aptName || p.customerName;
+  if(!confirm(`"${label}" 현장의 특허료 요청서를 발행합니다.\n\n■ 발송일: ${issuedDate}\n■ 공문번호: ${docNumber}\n■ 청구 금액: ${fmtNum(amount)}원\n\n확정하시겠습니까?\n(확정 후 엑셀 파일이 다운로드되고 메일 작성 창이 열립니다)\n\n※ 공문번호는 사내 공문대장에도 반드시 기록해주세요.`)) return;
+
+  // ── ① 청구 레코드 생성 ──
+  const bill = {
+    id: Date.now(),
+    projectId: pid,
+    customerName: p.customerName,
+    aptName: p.aptName,
+    constructionName: p.constructionName,
+    constructionType: p.constructionType,
+    contactEmail: p.contactEmail,
+    bidPrice: p.bidPrice,
+    type: "특허료",
+    amount: amount,
+    issuedDate: issuedDate,
+    docNumber: docNumber,
+    invoiceDate: "",
+    depositDate: "",
+    emailSentDate: "",
+    status: "미수금"
+  };
+  allBills.push(bill);
+  if(!p.bills) p.bills = [];
+  p.bills.push(bill);
+  selBillId = bill.id;
+  saveData();
+
+  // ── ② 엑셀 다운로드 (공문번호를 C34/D34/E34에 자동 삽입) ──
+  try {
+    await ordDownloadBillXlsx(pid, docNumber, issuedDate);
+  } catch(err){
+    console.error("엑셀 다운로드 실패:", err);
+    // 엑셀 실패해도 발행은 유지 (나중에 다시 뽑을 수 있음)
+  }
+
+  // ── ③ 모달 닫기 + 메일 작성창 오픈 ──
+  document.getElementById("ord-bill-overlay").classList.remove("open");
+  ordBillPid = null;
+
+  const _emailTo = p.contactEmail || (companyMaster.find(c=>c.name===p.customerName)||{}).email || "";
+  const subject = `[넷폼알앤디 / ${docNumber}] ${p.aptName||p.customerName} 특허기술 자문료 요청서 발송의 건`;
+  const body = `안녕하세요, ${p.customerName} 담당자님.
+평소 저희 넷폼알앤디에 보내주시는 성원과 신뢰에 깊은 감사를 드립니다.
+
+${p.aptName||""} ${p.constructionName||""} 관련 특허기술 자문료 요청서를 아래와 같이 송부드리오니
+내역 확인 후 처리 부탁드립니다.
+
+■ 공문번호: ${docNumber}
+■ 공사형태: ${p.constructionType}
+■ 낙찰가: ${fmtNum(p.bidPrice)}
+■ 청구 유형: 특허기술 자문료
+■ 청구 금액: ${fmtNum(amount)}
+■ 발송일: ${issuedDate}
+
+※ 첨부파일: 특허기술자문료요청서_${p.aptName||"현장"}_${p.customerName||""}.pdf
+  (조금 전 생성된 엑셀을 PDF로 변환하여 메일에 첨부해주세요)
+
+문의사항이 있으시면 언제든지 연락 주시기 바랍니다.
+감사합니다.
+
+㈜넷폼알앤디
+대표번호: 1899-2734`;
+  openEmailModal(_emailTo, subject, body);
+
+  // 전체 화면 갱신 (대시보드 청구대기, 자재주문, 청구서발행, 미수금 등 모두 반영)
+  renderPage(currentTab);
 }
 
 // ── 청구서 발행 ──
@@ -1997,15 +2274,15 @@ function renderBillingList(){
       actionBtns = `<button class="btn btn-primary btn-sm" style="padding:3px 8px;font-size:11px" onclick="openBillPreview(${p.id},'material')">자재(준공)</button>`;
     } else {
       if(materialPending) actionBtns += `<button class="btn btn-blue btn-sm" style="padding:3px 7px;font-size:11px" onclick="openBillPreview(${p.id},'material')">자재(월)</button> `;
-      if(patentPending)   actionBtns += `<button class="btn btn-purple btn-sm" style="padding:3px 7px;font-size:11px" onclick="openBillPreview(${p.id},'patent')">특허료</button> `;
+      if(patentPending)   actionBtns += `<button class="btn btn-purple btn-sm" style="padding:3px 7px;font-size:11px" title="요청서 모달로 이동 - 엑셀/메일/발행을 한번에" onclick="ordOpenBill(${p.id})">🔖 특허료</button> `;
     }
     actionBtns += `<button class="btn btn-gray btn-sm" style="padding:3px 7px;font-size:11px" title="PDF 출력" onclick="printBill(${p.id})">🖨️</button>`;
 
     const completedStyle = p.status==='완료' ? 'border-left:3px solid #4ade80;opacity:0.8' : '';
     html += `<div class="blist-row" style="${completedStyle}">
       <div style="min-width:0">
-        <div class="blist-name">${p.aptName||p.customerName}${p.status==='완료'?' <span style="font-size:10px;color:#16a34a">완료</span>':''}</div>
-        <div class="blist-sub">${p.aptName?p.customerName+' · ':''}${badge(p.constructionType,typeColor(p.constructionType))}</div>
+        <div class="blist-name">${badge(p.constructionType,typeColor(p.constructionType))} ${p.aptName||p.customerName}${p.status==='완료'?' <span style="font-size:10px;color:#16a34a">완료</span>':''}</div>
+        <div class="blist-sub">${p.aptName?p.customerName:''}</div>
       </div>
       <div class="blist-amt" style="color:${materialPending?'#1d4ed8':'#d1d5db'}">${materialPending?fmtNum(b.materialAmt):'—'}</div>
       <div class="blist-amt" style="color:${patentPending?'#7c3aed':'#d1d5db'}">${patentPending?fmtNum(b.patentAmt):'—'}</div>
@@ -2308,7 +2585,7 @@ function renderHistory(){
           <strong style="font-size:13px">${b.customerName} · ${b.aptName||""}</strong>
           ${badge(b.constructionType,typeColor(b.constructionType))}
         </div>
-        <div style="font-size:11px;color:#6b7280">${b.constructionName||""} | ${b.issuedDate}</div>
+        <div style="font-size:11px;color:#6b7280">${b.constructionName||""} | ${b.issuedDate}${b.docNumber?` · <span style="color:#7c3aed;font-weight:600">${b.docNumber}</span>`:""}</div>
         <div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap">${badge(b.type,b.type==="특허료"?"b-patent":"b-blue")}${badge(b.status,stBadge)}</div>
       </div>
       <div style="text-align:right;flex-shrink:0">
@@ -2783,6 +3060,7 @@ function openProjectHistory(pid){
       <thead><tr style="background:#f9fafb">
         <th style="padding:6px 8px;text-align:left;color:#6b7280;font-weight:600;border-bottom:1px solid #e5e7eb">유형</th>
         <th style="padding:6px 8px;text-align:right;color:#6b7280;font-weight:600;border-bottom:1px solid #e5e7eb">금액</th>
+        <th style="padding:6px 8px;text-align:center;color:#6b7280;font-weight:600;border-bottom:1px solid #e5e7eb">공문번호</th>
         <th style="padding:6px 8px;text-align:center;color:#6b7280;font-weight:600;border-bottom:1px solid #e5e7eb">청구서발행일</th>
         <th style="padding:6px 8px;text-align:center;color:#6b7280;font-weight:600;border-bottom:1px solid #e5e7eb">계산서발행일</th>
         <th style="padding:6px 8px;text-align:center;color:#6b7280;font-weight:600;border-bottom:1px solid #e5e7eb">입금일</th>
@@ -2799,6 +3077,7 @@ function openProjectHistory(pid){
           return `<tr style="border-bottom:1px solid #f3f4f6">
             <td style="padding:6px 8px;font-weight:600;${typeCls}">${b.type||"-"}</td>
             <td style="padding:6px 8px;text-align:right;font-weight:600;color:#4338ca">${fmtNum(b.amount)}</td>
+            <td style="padding:6px 8px;text-align:center;color:${b.docNumber?'#7c3aed':'#9ca3af'};font-size:11px;font-weight:${b.docNumber?'600':'400'}">${b.docNumber||"-"}</td>
             <td style="padding:6px 8px;text-align:center;color:#6b7280">${b.issuedDate||"-"}</td>
             <td style="padding:6px 8px;text-align:center;color:#6b7280">${b.invoiceDate||"-"}</td>
             <td style="padding:6px 8px;text-align:center;color:#6b7280">${b.depositDate||"-"}</td>
@@ -2809,7 +3088,7 @@ function openProjectHistory(pid){
       <tfoot><tr style="background:#f9fafb">
         <td style="padding:6px 8px;font-weight:700;color:#374151">합계</td>
         <td style="padding:6px 8px;text-align:right;font-weight:700;color:#4338ca">${fmtNum(billTotal)}</td>
-        <td colspan="3"></td>
+        <td colspan="4"></td>
         <td style="padding:6px 8px;text-align:center;font-size:11px">
           ${paidTotal>0?`<span style="color:#16a34a">수금 ${fmtNum(paidTotal)}</span>`:""}
           ${unpaidTotal>0?`<span style="color:#dc2626;margin-left:4px">미수 ${fmtNum(unpaidTotal)}</span>`:""}
@@ -3693,16 +3972,17 @@ async function downloadNoticeXlsx(p, seqNo){
   }
 }
 
-async function ordDownloadBillXlsx(pid){
+async function ordDownloadBillXlsx(pid, docNumber, issuedDate){
   const p = projects.find(x=>x.id===pid);
   if(!p) return;
   const tmpl = guidePdfStore.billTemplate;
   if(!tmpl){ alert("청구서 엑셀 템플릿이 등록되지 않았습니다.\n⚙️ 설정 탭에서 먼저 업로드해주세요."); return; }
   if(typeof JSZip==="undefined"){ alert("JSZip 라이브러리 로드 중입니다. 잠시 후 다시 시도해주세요."); return; }
   try{
-    const today = new Date();
-    const yyyy = today.getFullYear(), mm = String(today.getMonth()+1).padStart(2,"0"), dd = String(today.getDate()).padStart(2,"0");
-    const excelSerial = Math.floor((Date.UTC(yyyy,today.getMonth(),today.getDate())-Date.UTC(1899,11,30))/86400000);
+    // 발송일 우선 사용 (없으면 오늘)
+    const issDate = issuedDate ? new Date(issuedDate+"T00:00:00") : new Date();
+    const yyyy = issDate.getFullYear(), mm = String(issDate.getMonth()+1).padStart(2,"0"), dd = String(issDate.getDate()).padStart(2,"0");
+    const excelSerial = Math.floor((Date.UTC(yyyy,issDate.getMonth(),issDate.getDate())-Date.UTC(1899,11,30))/86400000);
     const bid = Number(p.bidPrice)||0;
     const totalAmt = p.orders.reduce((a,o)=>a+(Number(o.amount)||0),0);
     const patentBase = Math.round(bid*0.02);
@@ -3719,11 +3999,26 @@ async function ordDownloadBillXlsx(pid){
 
     function escXml(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 
-    // ── sharedStrings.xml: 인덱스 34(수신), 35(아파트명), 36(공사명) 교체 ──
+    // ── sharedStrings.xml: 인덱스 34(수신), 35(아파트명), 36(공사명) 교체 + 30(공문번호 연도) 교체 ──
+    // 공문번호 "제 2026-0417-03 호"는 템플릿의 4개 셀로 분리 저장됨:
+    //   C34 = "제 2026-"  (sharedStrings 인덱스 30, 연도만 갱신)
+    //   D34 = =H34        (월일, 수식으로 자동 표시 → 0417)
+    //   E34 = 순번 숫자   (셀 서식 "-0000 호"가 자동 적용 → -0003 호)
+    //   F34 = 빈 셀 (병합 일부)
+    let docYear = "", docSeqNum = 0;
+    if(docNumber){
+      // docNumber 파싱: "제 2026-0417-03 호" → 연도, 순번 추출
+      const mY = docNumber.match(/제\s*(\d{4})-/);
+      const mS = docNumber.match(/-(\d+)\s*호/);
+      docYear = mY ? mY[1] : String(new Date().getFullYear());
+      docSeqNum = mS ? parseInt(mS[1], 10) : 0;
+    }
+
     let ssXml = await zip.file("xl/sharedStrings.xml").async("string");
     let siIdx = -1;
     ssXml = ssXml.replace(/<si>[\s\S]*?<\/si>/g, match=>{
       siIdx++;
+      if(siIdx===30 && docYear) return `<si><t>${escXml(`제 ${docYear}-`)}</t></si>`;  // C34: 공문번호 연도
       if(siIdx===34) return `<si><t>${escXml(p.customerName||"")}</t></si>`;
       if(siIdx===35) return `<si><t xml:space="preserve">${escXml(aptName)} </t></si>`;
       if(siIdx===36) return `<si><t>${escXml(workName)}</t></si>`;
@@ -3758,6 +4053,14 @@ async function ordDownloadBillXlsx(pid){
     updNum("D34", excelSerial);
     updStrCache("D10", aptName);
     updStrCache("A22", aptName);
+    // 공문번호 처리:
+    //   C34 = "제 YYYY-"  (sharedStrings에서 이미 연도 반영 완료)
+    //   D34 = 시행일자 시리얼  (위 updNum("D34", excelSerial)에서 mmdd 서식으로 월일 표시)
+    //   E34 = 순번 숫자  (셀 서식 "-0000 호"가 자동 적용되어 "-0003 호" 렌더링)
+    if(docNumber && docSeqNum > 0){
+      updNum("E34", docSeqNum);
+      console.log(`[공문번호] C34="제 ${docYear}-", D34=${mm}${dd}(=H34), E34=${docSeqNum}`);
+    }
 
     zip.file("xl/worksheets/sheet1.xml", xml);
 
@@ -4248,6 +4551,7 @@ function openAddProject(){
   document.getElementById("modal-project-title").textContent="새 현장 등록";
   document.getElementById("f-submit-btn").textContent="현장 등록";
   document.getElementById("f-edit-id").value="";
+  document.getElementById("f-delete-btn").style.display="none";
   ["f-customer","f-apt","f-consname","f-bid","f-category","f-patent","f-email","f-biddate","f-startdate","f-enddate","f-guidesentdate","f-memo"].forEach(id=>{document.getElementById(id).value="";});
   document.getElementById("f-constype").value="공고";
   document.getElementById("f-status").value="대기";
@@ -4262,6 +4566,7 @@ function openEditProject(pid){
   document.getElementById("modal-project-title").textContent="현장 수정";
   document.getElementById("f-submit-btn").textContent="수정 저장";
   document.getElementById("f-edit-id").value=pid;
+  document.getElementById("f-delete-btn").style.display="";
   document.getElementById("f-customer").value=p.customerName||"";
   document.getElementById("f-apt").value=p.aptName||"";
   document.getElementById("f-consname").value=p.constructionName||"";
