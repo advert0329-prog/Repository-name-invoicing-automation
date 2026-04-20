@@ -28,6 +28,20 @@
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f0f2f7;color:var(--gray-900);font-size:14px;line-height:1.5}
 
+/* ── 한글 IME 디폴트 (한글 입력 대상 input/textarea) ── */
+input[type="text"]:not([data-ime="off"]),
+input[type="search"]:not([data-ime="off"]),
+input:not([type]):not([data-ime="off"]),
+textarea:not([data-ime="off"]){
+  ime-mode: active; /* legacy (IE/구 Edge/Firefox) */
+}
+/* 숫자/날짜/이메일/전화/URL 입력은 IME 해제 */
+input[type="number"], input[type="date"], input[type="time"],
+input[type="datetime-local"], input[type="email"], input[type="tel"],
+input[type="url"], input[type="password"]{
+  ime-mode: inactive;
+}
+
 /* ── 헤더 ── */
 .header{background:linear-gradient(135deg,#4338ca 0%,#6366f1 100%);color:#fff;padding:16px 24px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 2px 8px rgba(67,56,202,.3)}
 .header h1{font-size:17px;font-weight:700;letter-spacing:-0.3px}
@@ -559,6 +573,15 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f0
 <div id="ord-popover" class="ord-popover">
   <label id="ord-pop-lbl">날짜 입력</label>
   <input type="date" id="ord-pop-date"/>
+  <div id="ord-pop-amt-wrap" style="display:none">
+    <label style="margin-top:2px">입금액 <span id="ord-pop-remain-hint" style="font-weight:400;color:#6b7280;font-size:10px"></span></label>
+    <input type="number" id="ord-pop-amt" placeholder="0" step="1000" style="width:100%;border:1.5px solid var(--gray-300);border-radius:7px;padding:7px 10px;font-size:12px;font-family:inherit;outline:none;margin-bottom:6px"/>
+    <div style="display:flex;gap:4px;margin-bottom:8px">
+      <button type="button" onclick="ordPopSetFull()" style="flex:1;padding:5px;background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer">💰 잔액 전액</button>
+      <button type="button" onclick="ordPopSetHalf()" style="flex:1;padding:5px;background:#f9fafb;color:#374151;border:1px solid #e5e7eb;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer">½ 절반</button>
+    </div>
+    <div id="ord-pop-history" style="margin-bottom:8px"></div>
+  </div>
   <div class="pop-btns">
     <button class="pop-save" onclick="ordSavePop()">저장</button>
     <button class="pop-del"  onclick="ordClearPop()">삭제</button>
@@ -808,7 +831,7 @@ function renderDashboard(){
       billingSoon.forEach(p=>{
         const b=calcBilling(p);
         const dl=daysLeft(p.expectedCompletionDate);
-        const dlBadge = dl===null ? "" : dl>=0 ? badge(`준공 D-${dl}`,dl<=3?"b-red":"b-yellow") : badge(`준공 D+${Math.abs(dl)} 경과`,"b-red");
+        const dlBadge = dl===null ? "" : dl>=0 ? badge(`준공 D-${dl}`,dl<=3?"b-red":"b-yellow") : badge(`준공 D+${Math.abs(dl)}`,"b-red");
         html+=`<div class="card-sm" style="display:flex;justify-content:space-between;align-items:center;gap:10px">
           <div style="flex:1;min-width:0">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
@@ -857,7 +880,7 @@ function renderDashboard(){
             ${badge(p.constructionType, typeColor(p.constructionType))}
           </div>
           <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-            <span style="font-size:11px;font-weight:700;color:${overdueColor}">준공 D+${overdueDays} 경과</span>
+            <span style="font-size:11px;font-weight:700;color:${overdueColor}">준공 D+${overdueDays}</span>
             <span style="font-size:11px;color:#6b7280">준공일 ${p.expectedCompletionDate}</span>
             ${b.patentAmt > 0 ? `<span style="font-size:11px;background:#fce7f3;color:#be185d;border-radius:4px;padding:1px 6px;font-weight:600">특허료 ${fmtNum(b.patentAmt)}</span>` : ""}
           </div>
@@ -1052,7 +1075,7 @@ function calcProgress(p){
 
 function renderProjectCard(p){
   const dl = daysLeft(p.expectedCompletionDate);
-  const dlBadge = dl!==null && dl<=7 ? badge(`D-${dl}`, dl<=3?"b-red":"b-yellow") : "";
+  const dlBadge = dl===null ? "" : (dl < 0 ? badge(`D+${Math.abs(dl)}`, "b-red") : (dl <= 7 ? badge(`D-${dl}`, dl<=3?"b-red":"b-yellow") : ""));
   const statusBadge = p.status==="완료" ? badge("완료","b-green") : p.status==="대기" ? badge("대기","b-gray") : p.status==="유찰" ? badge("유찰","b-orange") : p.status==="취소" ? badge("취소","b-red") : "";
   const prog = calcProgress(p);
   const progColor = prog===null?"":prog>=100?"#22c55e":prog>=60?"#4338ca":"#f97316";
@@ -1171,7 +1194,7 @@ function renderProjectsList(){
             if(p.status==='완료') return `<span style="color:#6b7280;font-size:11px">${p.expectedCompletionDate}</span>`;
             if(dl===null) return `<span style="color:#6b7280;font-size:11px">${p.expectedCompletionDate}</span>`;
             if(dl<0){
-              return `<div style="line-height:1.3"><span style="color:#dc2626;font-weight:700;font-size:12px">D+${Math.abs(dl)} 경과</span><br><span style="color:#9ca3af;font-size:10px">${p.expectedCompletionDate}</span></div>`;
+              return `<div style="line-height:1.3"><span style="color:#dc2626;font-weight:700;font-size:12px">D+${Math.abs(dl)}</span><br><span style="color:#9ca3af;font-size:10px">${p.expectedCompletionDate}</span></div>`;
             }
             if(dl===0) return `<div style="line-height:1.3"><span style="color:#dc2626;font-weight:700;font-size:12px">오늘 준공</span><br><span style="color:#9ca3af;font-size:10px">${p.expectedCompletionDate}</span></div>`;
             if(dl<=3)  return `<div style="line-height:1.3"><span style="color:#dc2626;font-weight:700;font-size:12px">D-${dl}</span><br><span style="color:#9ca3af;font-size:10px">${p.expectedCompletionDate}</span></div>`;
@@ -1306,6 +1329,91 @@ const ordFmt = d => { if(!d) return null; const dt=new Date(d); if(isNaN(dt.getT
 const ordFmtN = n => Number(n).toLocaleString("ko-KR");
 const ordFmtAmt = n => n ? ordFmtN(n)+"원" : "-";
 
+// ── 부분입금 관리 헬퍼 ──
+// o.deposits: [{id, date, amount, note}, ...] 배열로 분할 입금 이력 저장
+// o.depositDate: 전액 완납일 (자동 계산됨, 완납 시에만 세팅)
+// - 누적 입금액이 주문액 도달하면 o.depositDate = 마지막 입금일
+// - 부분입금 상태면 o.depositDate = "" (미완납 취급)
+// - 레거시 데이터 호환: o.depositDate만 있고 o.deposits 없으면 전액 입금으로 간주
+
+function getOrderPaidAmount(o){
+  if(Array.isArray(o.deposits) && o.deposits.length > 0){
+    return o.deposits.reduce((s,d)=>s+(Number(d.amount)||0), 0);
+  }
+  // 레거시: depositDate만 있으면 전액 입금으로 간주
+  return o.depositDate ? (Number(o.amount)||0) : 0;
+}
+function getOrderRemainAmount(o){
+  return Math.max(0, (Number(o.amount)||0) - getOrderPaidAmount(o));
+}
+function isOrderFullyPaid(o){
+  return (Number(o.amount)||0) > 0 && getOrderRemainAmount(o) <= 0;
+}
+function isOrderPartiallyPaid(o){
+  // 부분입금 상태: 입금 이력 있음 AND 아직 완납 안 됨
+  return Array.isArray(o.deposits) && o.deposits.length > 0 && !isOrderFullyPaid(o);
+}
+// 입금 이력 추가 (원자적)
+function addOrderDeposit(pid, oid, date, amount, note){
+  const p = projects.find(x=>x.id===pid); if(!p) return {ok:false,msg:"현장 없음"};
+  const o = p.orders.find(x=>x.id===oid); if(!o) return {ok:false,msg:"주문 없음"};
+  if(!Array.isArray(o.deposits)) o.deposits = [];
+
+  // 레거시 depositDate → deposits 배열로 자동 이관 (첫 추가 시점에만)
+  if(o.depositDate && o.deposits.length === 0){
+    o.deposits.push({
+      id: Date.now()+Math.random(),
+      date: o.depositDate,
+      amount: Number(o.amount)||0,
+      note: "(기존 전액입금)"
+    });
+  }
+
+  const amt = Number(amount)||0;
+  if(amt <= 0) return {ok:false,msg:"입금액이 0 이하"};
+  const remain = getOrderRemainAmount(o);
+  if(remain <= 0) return {ok:false,msg:"이미 완납된 주문"};
+  const actualAmt = Math.min(amt, remain); // 잔액 이상 방어
+
+  o.deposits.push({
+    id: Date.now()+Math.random(),
+    date: date || todayStr(),
+    amount: actualAmt,
+    note: note || ""
+  });
+
+  // 완납 체크 → depositDate 자동 설정
+  if(getOrderRemainAmount(o) <= 0){
+    const latestDate = o.deposits.reduce((max,d)=>(d.date>max?d.date:max), "");
+    o.depositDate = latestDate;
+  } else {
+    o.depositDate = ""; // 부분입금 상태
+  }
+  return {ok:true, actualAmt, remain: getOrderRemainAmount(o), fullyPaid: isOrderFullyPaid(o)};
+}
+// 입금 이력 개별 삭제 (실수 정정용)
+function removeOrderDeposit(pid, oid, depositId){
+  const p = projects.find(x=>x.id===pid); if(!p) return false;
+  const o = p.orders.find(x=>x.id===oid); if(!o || !Array.isArray(o.deposits)) return false;
+  o.deposits = o.deposits.filter(d => d.id !== depositId);
+  // 상태 재계산
+  if(o.deposits.length === 0 || getOrderRemainAmount(o) > 0){
+    o.depositDate = "";
+  } else {
+    const latestDate = o.deposits.reduce((max,d)=>(d.date>max?d.date:max), "");
+    o.depositDate = latestDate;
+  }
+  return true;
+}
+// 입금 이력 전체 삭제 (입금 취소)
+function clearOrderDeposits(pid, oid){
+  const p = projects.find(x=>x.id===pid); if(!p) return false;
+  const o = p.orders.find(x=>x.id===oid); if(!o) return false;
+  o.deposits = [];
+  o.depositDate = "";
+  return true;
+}
+
 function ordCalc(p){
   const totalAmt = p.orders.reduce((a,o)=>a+(Number(o.amount)||0),0);
   const threshold = (Number(p.bidPrice)||0)*0.02;
@@ -1401,8 +1509,17 @@ function ordDetailHTML(p){
         :`<button class="oev2 oev2-wait" onclick="ordOpenPop(event,${p.id},${o.id},'invoiceDate','계산서발행일',null)">미발행</button>`;
       let depBtn;
       const _depFmt=ordFmt(o.depositDate), _depDf=ordDfToday(o.depositDate);
-      if(o.depositDate&&_depFmt&&_depFmt!=='-') depBtn=`<button class="oev2 oev2-done" onclick="ordOpenPop(event,${p.id},${o.id},'depositDate','입금일','${o.depositDate}')">✅ ${_depFmt}<span class="oev2-day">${_depDf!=null?_depDf+'일전':''}</span></button>`;
-      else if(isLate)  depBtn=`<button class="oev2 oev2-late" onclick="ordOpenPop(event,${p.id},${o.id},'depositDate','입금일',null)">🔴 미입금<span class="oev2-day late">D+${since}</span></button>`;
+      const partiallyPaid = isOrderPartiallyPaid(o);
+      if(o.depositDate&&_depFmt&&_depFmt!=='-'){
+        // 전액 완납
+        depBtn=`<button class="oev2 oev2-done" onclick="ordOpenPop(event,${p.id},${o.id},'depositDate','입금일','${o.depositDate}')">✅ ${_depFmt}<span class="oev2-day">${_depDf!=null?_depDf+'일전':''}</span></button>`;
+      } else if(partiallyPaid){
+        // 부분입금 상태
+        const paid = getOrderPaidAmount(o);
+        const total = Number(o.amount)||0;
+        const pct = Math.round(paid/total*100);
+        depBtn=`<button class="oev2 oev2-warn" onclick="ordOpenPop(event,${p.id},${o.id},'depositDate','입금일',null)" title="부분입금 · ${ordFmtN(paid)}/${ordFmtN(total)}원">🟡 부분 ${pct}%<span class="oev2-day warn">${o.deposits.length}건</span></button>`;
+      } else if(isLate)  depBtn=`<button class="oev2 oev2-late" onclick="ordOpenPop(event,${p.id},${o.id},'depositDate','입금일',null)">🔴 미입금<span class="oev2-day late">D+${since}</span></button>`;
       else if(isWarn)  depBtn=`<button class="oev2 oev2-warn" onclick="ordOpenPop(event,${p.id},${o.id},'depositDate','입금일',null)">⚠️ 대기<span class="oev2-day warn">D+${since}</span></button>`;
       else             depBtn=`<button class="oev2 oev2-wait" onclick="ordOpenPop(event,${p.id},${o.id},'depositDate','입금일',null)">미입금</button>`;
       const odStr=o.date?o.date:`<span style="color:var(--gray-400)">-</span>`;
@@ -1755,32 +1872,154 @@ function ordOpenPop(e, pid, oid, field, label, cur){
   ordPopPid = pid; ordPopOid = oid; ordPopField = field;
   document.getElementById("ord-pop-lbl").textContent = `📅 ${label} 입력`;
   document.getElementById("ord-pop-date").value = cur || "";
+
+  // 입금일(depositDate) 모드일 때만 금액 필드 표시
+  const amtWrap = document.getElementById("ord-pop-amt-wrap");
+  const p = projects.find(x=>x.id===pid);
+  const o = p?.orders.find(x=>x.id===oid);
+  if(field === "depositDate" && o){
+    amtWrap.style.display = "block";
+    const remain = getOrderRemainAmount(o);
+    const total  = Number(o.amount)||0;
+    const paid   = getOrderPaidAmount(o);
+    // 잔액 힌트
+    const hint = document.getElementById("ord-pop-remain-hint");
+    hint.innerHTML = `(주문 ${ordFmtN(total)}원 · 기입금 ${ordFmtN(paid)}원 · <b style="color:#dc2626">잔액 ${ordFmtN(remain)}원</b>)`;
+    // 기본값: 잔액 전액 + 오늘 날짜
+    document.getElementById("ord-pop-amt").value = remain;
+    document.getElementById("ord-pop-amt").max = remain;
+    if(!cur) document.getElementById("ord-pop-date").value = todayStr();
+
+    // 입금 이력 목록 표시
+    const histDiv = document.getElementById("ord-pop-history");
+    if(Array.isArray(o.deposits) && o.deposits.length > 0){
+      histDiv.innerHTML = `<div style="font-size:10px;color:#6b7280;margin-bottom:3px;font-weight:700">📜 입금 이력</div>` +
+        o.deposits.map(d=>`<div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 6px;background:#f9fafb;border-radius:4px;margin-bottom:2px">
+          <span style="color:#374151">${d.date} ${d.note?`<span style="color:#9ca3af">· ${d.note}</span>`:""}</span>
+          <span style="display:flex;gap:4px;align-items:center">
+            <span style="font-weight:600;color:#16a34a">${ordFmtN(d.amount)}원</span>
+            <button onclick="ordPopRemoveDeposit('${d.id}')" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:10px;padding:0 2px" title="이 입금건 삭제">✕</button>
+          </span>
+        </div>`).join("");
+    } else {
+      histDiv.innerHTML = "";
+    }
+  } else {
+    amtWrap.style.display = "none";
+  }
+
   const pop = document.getElementById("ord-popover");
   const rect = e.currentTarget.getBoundingClientRect();
   let l = rect.left, t = rect.bottom + 5;
-  if(l+220 > window.innerWidth) l = window.innerWidth - 225;
-  if(t+140 > window.innerHeight) t = rect.top - 145;
+  const popH = field === "depositDate" ? 320 : 140;
+  const popW = field === "depositDate" ? 280 : 220;
+  if(l+popW > window.innerWidth) l = window.innerWidth - popW - 5;
+  if(t+popH > window.innerHeight) t = Math.max(5, rect.top - popH - 5);
   pop.style.left = l+"px"; pop.style.top = t+"px";
   pop.classList.add("open");
   document.getElementById("ord-pop-date").focus();
+}
+// 잔액 전액 버튼
+function ordPopSetFull(){
+  const p = projects.find(x=>x.id===ordPopPid);
+  const o = p?.orders.find(x=>x.id===ordPopOid);
+  if(!o) return;
+  document.getElementById("ord-pop-amt").value = getOrderRemainAmount(o);
+}
+// 절반 버튼
+function ordPopSetHalf(){
+  const p = projects.find(x=>x.id===ordPopPid);
+  const o = p?.orders.find(x=>x.id===ordPopOid);
+  if(!o) return;
+  document.getElementById("ord-pop-amt").value = Math.round(getOrderRemainAmount(o)/2/1000)*1000;
+}
+// 입금 이력 개별 삭제 (팝오버 내 ✕ 버튼)
+function ordPopRemoveDeposit(depId){
+  if(!confirm("이 입금 건을 삭제하시겠습니까?")) return;
+  const id = Number(depId) || parseFloat(depId); // id는 timestamp+random이라 float
+  // id 매칭 (Float 비교이므로 문자열로도 대조)
+  const p = projects.find(x=>x.id===ordPopPid);
+  const o = p?.orders.find(x=>x.id===ordPopOid);
+  if(!o || !Array.isArray(o.deposits)) return;
+  o.deposits = o.deposits.filter(d => String(d.id) !== String(depId));
+  // 상태 재계산
+  if(o.deposits.length === 0 || getOrderRemainAmount(o) > 0){
+    o.depositDate = "";
+  } else {
+    const latestDate = o.deposits.reduce((max,d)=>(d.date>max?d.date:max), "");
+    o.depositDate = latestDate;
+  }
+  saveData();
+  // 팝오버 리프레시 (동일 파라미터로 재호출 대체)
+  const remain = getOrderRemainAmount(o);
+  const paid   = getOrderPaidAmount(o);
+  const total  = Number(o.amount)||0;
+  document.getElementById("ord-pop-remain-hint").innerHTML = `(주문 ${ordFmtN(total)}원 · 기입금 ${ordFmtN(paid)}원 · <b style="color:#dc2626">잔액 ${ordFmtN(remain)}원</b>)`;
+  document.getElementById("ord-pop-amt").value = remain;
+  document.getElementById("ord-pop-amt").max = remain;
+  // 이력 다시 그리기
+  const histDiv = document.getElementById("ord-pop-history");
+  if(o.deposits.length > 0){
+    histDiv.innerHTML = `<div style="font-size:10px;color:#6b7280;margin-bottom:3px;font-weight:700">📜 입금 이력</div>` +
+      o.deposits.map(d=>`<div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 6px;background:#f9fafb;border-radius:4px;margin-bottom:2px">
+        <span style="color:#374151">${d.date} ${d.note?`<span style="color:#9ca3af">· ${d.note}</span>`:""}</span>
+        <span style="display:flex;gap:4px;align-items:center">
+          <span style="font-weight:600;color:#16a34a">${ordFmtN(d.amount)}원</span>
+          <button onclick="ordPopRemoveDeposit('${d.id}')" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:10px;padding:0 2px" title="이 입금건 삭제">✕</button>
+        </span>
+      </div>`).join("");
+  } else {
+    histDiv.innerHTML = "";
+  }
 }
 function ordSavePop(){
   if(ordPopPid===null) return;
   const p = projects.find(x=>x.id===ordPopPid);
   const o = p?.orders.find(x=>x.id===ordPopOid);
-  if(o) o[ordPopField] = document.getElementById("ord-pop-date").value || null;
-  saveData();
+  if(!o) { ordClosePop(); return; }
+
+  const date = document.getElementById("ord-pop-date").value || "";
+
+  if(ordPopField === "depositDate"){
+    // 부분/전액 입금 추가
+    const amt = Number(document.getElementById("ord-pop-amt").value) || 0;
+    if(!date){ alert("입금일을 입력해주세요."); return; }
+    if(amt <= 0){ alert("입금액을 입력해주세요."); return; }
+    const remain = getOrderRemainAmount(o);
+    if(remain <= 0){ alert("이미 완납된 주문입니다."); ordClosePop(); return; }
+    const result = addOrderDeposit(ordPopPid, ordPopOid, date, amt, "");
+    if(!result.ok){ alert("입금 추가 실패: " + result.msg); return; }
+    saveData();
+    if(window._showSaved){
+      if(result.fullyPaid) window._showSaved(`✅ ${p.aptName||p.customerName} 완납 (${ordFmtN(result.actualAmt)}원)`);
+      else window._showSaved(`💰 ${p.aptName||p.customerName} 부분입금 ${ordFmtN(result.actualAmt)}원 (잔액 ${ordFmtN(result.remain)}원)`);
+    }
+  } else {
+    // invoiceDate 등 기존 단순 필드
+    o[ordPopField] = date || null;
+    saveData();
+  }
   ordClosePop();
-  renderOrders();
+  renderPage(currentTab);
 }
 function ordClearPop(){
   if(ordPopPid===null) return;
   const p = projects.find(x=>x.id===ordPopPid);
   const o = p?.orders.find(x=>x.id===ordPopOid);
-  if(o) o[ordPopField] = null;
+  if(!o){ ordClosePop(); return; }
+
+  if(ordPopField === "depositDate"){
+    // 입금 이력 전체 삭제 (강력한 작업 → 확인)
+    const hasDeposits = (Array.isArray(o.deposits) && o.deposits.length > 0) || o.depositDate;
+    if(!hasDeposits){ ordClosePop(); return; }
+    if(!confirm(`이 주문의 입금 이력을 모두 삭제하시겠습니까?\n${o.deposits?.length||0}건의 입금 기록이 삭제됩니다.`)) return;
+    clearOrderDeposits(ordPopPid, ordPopOid);
+  } else {
+    o[ordPopField] = null;
+  }
   saveData();
   ordClosePop();
-  renderOrders();
+  renderPage(currentTab);
 }
 function ordClosePop(){
   document.getElementById("ord-popover")?.classList.remove("open");
@@ -2300,32 +2539,35 @@ function renderUnpaid(){
   // 청구서 기반 미수금
   const billUnpaid = allBills.filter(b => b.status !== "수금완료");
 
-  // 자재주문 계산서 발행됐지만 입금 안 된 건 → 아파트(현장)별로 그룹핑
-  const orderUnpaidMap = {};
+  // 자재주문 계산서 발행됐지만 미완납(부분입금 포함) 건 → 건별 개별 항목으로 (현장별 그룹핑 X)
+  const orderUnpaid = [];
   projects.forEach(p => {
     p.orders.forEach(o => {
-      if(o.invoiceDate && !o.depositDate){
-        const key = p.id;
-        if(!orderUnpaidMap[key]){
-          orderUnpaidMap[key] = {
-            _type:"order", projectId:p.id,
-            customerName:p.customerName, aptName:p.aptName,
-            constructionType:p.constructionType, constructionName:p.constructionName,
-            contactEmail:p.contactEmail,
-            totalAmount:0, orders:[],
-            latestInvoiceDate:"",
-          };
-        }
-        orderUnpaidMap[key].totalAmount += o.amount;
-        orderUnpaidMap[key].orders.push(o);
-        // 가장 최근 계산서 발행일 추적
-        if(!orderUnpaidMap[key].latestInvoiceDate || o.invoiceDate > orderUnpaidMap[key].latestInvoiceDate){
-          orderUnpaidMap[key].latestInvoiceDate = o.invoiceDate;
-        }
+      // 조건: 계산서 발행됨 + 아직 완납 아님 (부분입금 상태도 미수금에 포함)
+      if(o.invoiceDate && !isOrderFullyPaid(o)){
+        const total = Number(o.amount)||0;
+        const paid  = getOrderPaidAmount(o);
+        const remain = total - paid;
+        orderUnpaid.push({
+          _type:"order",
+          projectId: p.id,
+          orderId: o.id,
+          customerName: p.customerName,
+          aptName: p.aptName,
+          constructionType: p.constructionType,
+          constructionName: p.constructionName,
+          contactEmail: p.contactEmail,
+          amount: total,
+          paidAmount: paid,
+          remainAmount: remain,
+          deposits: Array.isArray(o.deposits) ? [...o.deposits] : [],
+          invoiceDate: o.invoiceDate,
+          orderDate: o.date,
+          item: o.item||"자재",
+        });
       }
     });
   });
-  const orderUnpaid = Object.values(orderUnpaidMap);
 
   const allUnpaidItems = [...billUnpaid.map(b=>({...b,_type:"bill"})), ...orderUnpaid];
 
@@ -2334,13 +2576,15 @@ function renderUnpaid(){
     return;
   }
 
-  const totalAmt  = allBills.reduce((s,b)=>s+b.amount,0) + orderUnpaid.reduce((s,o)=>s+o.totalAmount,0);
-  const unpaidAmt = billUnpaid.reduce((s,b)=>s+b.amount,0) + orderUnpaid.reduce((s,o)=>s+o.totalAmount,0);
+  // 총액: 청구서 + 자재주문 전체 청구액
+  const totalAmt  = allBills.reduce((s,b)=>s+b.amount,0) + orderUnpaid.reduce((s,o)=>s+o.amount,0);
+  // 미수금: 청구서 미수 + 자재주문 잔액 합 (부분입금 반영)
+  const unpaidAmt = billUnpaid.reduce((s,b)=>s+b.amount,0) + orderUnpaid.reduce((s,o)=>s+o.remainAmount,0);
   const paidAmt   = allBills.filter(b=>b.status==="수금완료").reduce((s,b)=>s+b.amount,0);
 
   // ── 에이징 분류 헬퍼 ──
   function getAge(item){
-    const refDate = item._type==="order" ? item.latestInvoiceDate : (item.invoiceDate||item.issuedDate);
+    const refDate = item._type==="order" ? item.invoiceDate : (item.invoiceDate||item.issuedDate);
     if(!refDate) return null;
     return Math.floor((Date.now()-new Date(refDate).getTime())/86400000);
   }
@@ -2419,34 +2663,65 @@ function renderUnpaid(){
     const days  = getAge(item);
 
     if(item._type==="order"){
-      // ── 자재계산서 미입금 ──
-      const refLabel = item.latestInvoiceDate||"-";
-      const multiNote = item.orders.length>1 ? ` (${item.orders.length}건)` : "";
-      const depositInputs = item.orders.length===1
-        ? `<div class="up-field"><label>입금일</label><input type="date" value="${item.orders[0].depositDate||""}" onchange="updateOrderDepositDate(${item.projectId},${item.orders[0].id},this.value)" onclick="event.stopPropagation()"/></div>`
-        : `<div class="up-field"><label>일괄 입금일 적용</label><input type="date" value="" onchange="updateAllOrdersDepositDate(${item.projectId},this.value)" onclick="event.stopPropagation()"/></div>`;
+      // ── 자재계산서 미입금 (건별 개별 행, 부분입금 지원) ──
+      const refLabel = item.invoiceDate||"-";
+      const itemLabel = item.item||"자재";
+      const hasPartial = item.deposits.length > 0;
+      const amtCell = hasPartial
+        ? `<div style="line-height:1.3">
+            <div style="font-weight:700;color:#dc2626">잔액 ${fmtNum(item.remainAmount)}</div>
+            <div style="font-size:10px;color:#9ca3af">총 ${fmtNum(item.amount)} · 입금 ${fmtNum(item.paidAmount)}</div>
+          </div>`
+        : `<div style="font-weight:700;color:#4338ca">${fmtNum(item.amount)}</div>`;
+      const statusCell = hasPartial
+        ? `<span style="display:inline-block;padding:2px 6px;background:#fef3c7;color:#b45309;border-radius:4px;font-size:10px;font-weight:700">🟡 부분 ${item.deposits.length}건</span>`
+        : `<span style="font-size:11px;color:#dc2626">미입금</span>`;
 
       html+=`<tr class="data-row" onclick="upToggle('${rowId}')" data-age="${days??-1}">
         <td><span id="${rowId}-arr" style="font-size:10px;color:#9ca3af">▶</span></td>
         <td>
           <div style="font-weight:700;font-size:12px;color:#111827">${item.aptName||item.customerName}</div>
-          <div style="font-size:11px;color:#6b7280">${item.aptName?item.customerName+'  ·  ':''}</div>
+          <div style="font-size:11px;color:#6b7280">${item.aptName?item.customerName:''}${item.orderDate?` <span style="color:#9ca3af">· 주문 ${item.orderDate}</span>`:""}</div>
         </td>
-        <td>${badge("자재계산서","b-orange")}${multiNote?`<span style="font-size:10px;color:#9ca3af;margin-left:3px">${multiNote}</span>`:""}</td>
-        <td style="text-align:right;font-weight:700;color:#4338ca">${fmtNum(item.totalAmount)}</td>
+        <td>${badge("자재계산서","b-orange")}<span style="font-size:10px;color:#9ca3af;margin-left:3px">${itemLabel}</span></td>
+        <td style="text-align:right">${amtCell}</td>
         <td style="text-align:right">${agePill(days)}</td>
         <td style="font-size:11px;color:#374151">${refLabel}</td>
-        <td style="font-size:11px;color:#dc2626">미입금</td>
+        <td>${statusCell}</td>
         <td style="font-size:11px;color:#9ca3af">—</td>
-        <td style="text-align:right"></td>
+        <td style="text-align:right;white-space:nowrap">
+          <button class="btn btn-sm" style="background:#16a34a;color:#fff;border:none;padding:3px 8px;font-size:11px;font-weight:700;margin-right:3px" onclick="event.stopPropagation();quickMarkOrderPaid(${item.projectId},${item.orderId})" title="오늘 날짜로 잔액 전액 입금 처리">✅ ${hasPartial?'잔액입금':'오늘입금'}</button>
+          <button class="btn btn-blue btn-sm" style="padding:3px 8px;font-size:11px" onclick="event.stopPropagation();jumpToOrderAndExpand(${item.projectId})" title="자재주문 탭에서 상세 처리">🔗 주문</button>
+        </td>
       </tr>
       <tr class="expand-row" id="${rowId}" style="display:none">
         <td colspan="9">
-          <div class="up-expand-inner" style="grid-template-columns:140px 1fr auto" onclick="event.stopPropagation()">
-            <div class="up-field"><label>계산서 발행일 (최근)</label><input type="date" value="${item.latestInvoiceDate||""}" readonly style="background:#f3f4f6;color:#6b7280"/></div>
-            ${depositInputs}
-            <div class="up-expand-btns">
-              <button class="btn btn-gray btn-sm" onclick="event.stopPropagation();printBillById && printBillById()">🖨️ PDF</button>
+          <div class="up-expand-inner" style="grid-template-columns:1fr auto;align-items:start;gap:12px" onclick="event.stopPropagation()">
+            <div>
+              <div style="display:flex;gap:12px;margin-bottom:10px;flex-wrap:wrap">
+                <div style="font-size:11px;color:#6b7280"><span style="color:#374151;font-weight:600">계산서 발행일</span> ${item.invoiceDate||"-"}</div>
+                <div style="font-size:11px;color:#6b7280"><span style="color:#374151;font-weight:600">주문일</span> ${item.orderDate||"-"}</div>
+                <div style="font-size:11px;color:#6b7280"><span style="color:#374151;font-weight:600">주문액</span> ${fmtNum(item.amount)}원</div>
+                <div style="font-size:11px;color:#16a34a"><span style="color:#374151;font-weight:600">기입금</span> ${fmtNum(item.paidAmount)}원</div>
+                <div style="font-size:12px;color:#dc2626;font-weight:700"><span style="color:#374151;font-weight:600">잔액</span> ${fmtNum(item.remainAmount)}원</div>
+              </div>
+              ${hasPartial ? `
+                <div style="background:#f9fafb;border-radius:8px;padding:8px 10px;margin-bottom:6px">
+                  <div style="font-size:10px;font-weight:700;color:#6b7280;margin-bottom:4px">📜 입금 이력 (${item.deposits.length}건)</div>
+                  ${item.deposits.map(d=>`<div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0;border-bottom:1px dashed #e5e7eb">
+                    <span style="color:#374151">${d.date}${d.note?` <span style="color:#9ca3af">· ${d.note}</span>`:""}</span>
+                    <span style="font-weight:600;color:#16a34a">+${fmtNum(d.amount)}원</span>
+                  </div>`).join("")}
+                </div>
+              ` : ``}
+              <div style="padding:8px 10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:11px;color:#1e40af;line-height:1.5">
+                💡 <strong>✅ ${hasPartial?'잔액입금':'오늘입금'}</strong> = 잔액 ${fmtNum(item.remainAmount)}원을 오늘 날짜로 전액 입금.
+                부분입금은 <strong>🔗 주문</strong> 탭 입금 버튼에서 금액·날짜 지정하세요.
+              </div>
+            </div>
+            <div class="up-expand-btns" style="flex-direction:column;gap:5px">
+              <button class="btn btn-sm" style="background:#16a34a;color:#fff;border:none;font-weight:700;white-space:nowrap;width:140px" onclick="event.stopPropagation();quickMarkOrderPaid(${item.projectId},${item.orderId})">✅ ${hasPartial?'잔액입금':'오늘 입금완료'}</button>
+              <button class="btn btn-blue btn-sm" style="white-space:nowrap;width:140px" onclick="event.stopPropagation();jumpToOrderAndExpand(${item.projectId})">🔗 자재주문 이동</button>
             </div>
           </div>
         </td>
@@ -2471,13 +2746,19 @@ function renderUnpaid(){
         <td style="font-size:11px;color:#374151">${item.invoiceDate||"—"}</td>
         <td>${badge(item.status,stBadge)}</td>
         <td style="font-size:11px;color:#6b7280;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${delayTxt||"—"}</td>
-        <td style="text-align:right"><button class="btn btn-orange btn-sm" style="padding:3px 8px;font-size:11px;white-space:nowrap" onclick="event.stopPropagation();openDunningEmail(${item.id})">✉️ 독촉</button></td>
+        <td style="text-align:right;white-space:nowrap">
+          <button class="btn btn-sm" style="background:#16a34a;color:#fff;border:none;padding:3px 8px;font-size:11px;font-weight:700;margin-right:3px" onclick="event.stopPropagation();quickMarkBillPaid(${item.id})" title="오늘 날짜로 입금완료 처리">✅ 오늘입금</button>
+          <button class="btn btn-orange btn-sm" style="padding:3px 8px;font-size:11px" onclick="event.stopPropagation();openDunningEmail(${item.id})">✉️ 독촉</button>
+        </td>
       </tr>
       <tr class="expand-row" id="${rowId}" style="display:none">
         <td colspan="9">
           <div class="up-expand-inner" onclick="event.stopPropagation()">
             <div class="up-field"><label>계산서 발행일</label><input type="date" value="${item.invoiceDate||""}" onchange="updateBillDate(${item.id},'invoiceDate',this.value)"/></div>
-            <div class="up-field"><label>입금일</label><input type="date" value="${item.depositDate||""}" onchange="updateBillDate(${item.id},'depositDate',this.value)"/></div>
+            <div class="up-field">
+              <label>입금일 (다른 날짜 지정 시)</label>
+              <input type="date" value="${item.depositDate||""}" onchange="updateBillDate(${item.id},'depositDate',this.value)" title="과거 날짜로 입금 처리가 필요한 경우 사용"/>
+            </div>
             <div class="up-field" style="grid-column:span 1">
               <label>수금지연 사유</label>
               <select onchange="updateBillDelayReason(${item.id},'reason',this.value)">
@@ -2493,6 +2774,7 @@ function renderUnpaid(){
               ${(item.delayReason||"")==="기타"?`<input type="text" value="${item.delayReasonNote||""}" placeholder="기타 사유..." onchange="updateBillDelayReason(${item.id},'note',this.value)" style="margin-top:4px;width:100%;border:1px solid #d1d5db;border-radius:6px;padding:4px 7px;font-size:12px;font-family:inherit"/>`:``}
             </div>
             <div class="up-expand-btns">
+              <button class="btn btn-sm" style="background:#16a34a;color:#fff;border:none;font-weight:700" onclick="event.stopPropagation();quickMarkBillPaid(${item.id})" title="오늘 날짜로 입금완료 처리">✅ 오늘 입금완료</button>
               <button class="btn btn-orange btn-sm" onclick="event.stopPropagation();openDunningEmail(${item.id})">✉️ 독촉</button>
               <button class="btn btn-gray btn-sm" onclick="event.stopPropagation();printBillById(${item.id})">🖨️ PDF</button>
             </div>
@@ -2550,6 +2832,45 @@ function updateBillDelayReason(bid, field, value){
   renderUnpaid();
 }
 
+// ── 청구서 원클릭 입금완료 처리 (오늘 날짜 기준) ──
+function quickMarkBillPaid(bid){
+  const b = allBills.find(x=>x.id===bid);
+  if(!b) return;
+  const label = `${b.customerName||""}${b.aptName?" · "+b.aptName:""} ${b.type||""} ${fmtNum(b.amount)}원`;
+  if(!confirm(`"${label}" 을(를) 오늘 날짜(${todayStr()})로 입금완료 처리하시겠습니까?\n\n※ 다른 날짜로 처리하려면 [취소]를 누른 후 행을 펼쳐 "입금일" 칸에서 날짜를 선택하세요.`)) return;
+
+  // 계산서 발행일이 비어있으면 입금일과 동일하게 자동 설정 (세금계산서 일괄 처리)
+  if(!b.invoiceDate) b.invoiceDate = todayStr();
+  b.depositDate = todayStr();
+  b.status = "수금완료";
+
+  saveData();
+  if(window._showSaved) window._showSaved(`✅ ${b.aptName||b.customerName} 수금완료`);
+  renderPage(currentTab);
+}
+
+// ── 자재주문 원클릭 입금완료 처리 (오늘 날짜 기준, 잔액만큼 입금) ──
+// 이 함수로 o.deposits에 이력 추가하면 자재주문 탭과 자동 연동됨 (데이터 공유)
+function quickMarkOrderPaid(pid, oid){
+  const p = projects.find(x=>x.id===pid);
+  if(!p) return;
+  const o = p.orders.find(x=>x.id===oid);
+  if(!o) return;
+  const remain = getOrderRemainAmount(o);
+  if(remain <= 0){ alert("이미 완납된 주문입니다."); return; }
+  const isPartial = isOrderPartiallyPaid(o);
+  const label = `${p.customerName||""}${p.aptName?" · "+p.aptName:""} 자재계산서 ${isPartial?`잔액 ${fmtNum(remain)}원 (총 ${fmtNum(o.amount)}원)`:`${fmtNum(o.amount)}원`}`;
+  const msg = `"${label}" 을(를) 오늘 날짜(${todayStr()})로 ${isPartial?"잔액 전액":"전액"} 입금완료 처리하시겠습니까?\n\n※ 부분입금으로 처리하려면 [취소]를 누른 후 [🔗 주문] 버튼으로 자재주문 탭에서 금액·날짜를 지정하세요.`;
+  if(!confirm(msg)) return;
+
+  const result = addOrderDeposit(pid, oid, todayStr(), remain, isPartial?"잔액 완납":"전액 입금");
+  if(!result.ok){ alert("입금 추가 실패: " + result.msg); return; }
+
+  saveData();
+  if(window._showSaved) window._showSaved(`✅ ${p.aptName||p.customerName} 자재계산서 ${result.fullyPaid?"완납":"입금"}`);
+  renderPage(currentTab);
+}
+
 function updateOrderDepositDate(pid,oid,value){
   const p=projects.find(x=>x.id===pid);if(!p)return;
   const o=p.orders.find(x=>x.id===oid);if(!o)return;
@@ -2568,6 +2889,37 @@ function updateAllOrdersDepositDate(pid, value){
   });
   saveData();
   renderUnpaid();
+}
+
+// 미수금관리 → 자재주문 탭으로 점프 + 해당 현장 자동 펼침 + 스크롤 + 하이라이트
+function jumpToOrderAndExpand(pid){
+  // 해당 현장만 펼침 상태로 설정 (다른 건 모두 닫기)
+  if(typeof ordExpandedIds !== "undefined"){
+    ordExpandedIds.clear();
+    ordExpandedIds.add(pid);
+  }
+  // 검색어 초기화 (다른 현장 검색 중이었을 수 있음)
+  if(typeof ordSearch !== "undefined") ordSearch = "";
+
+  // 자재주문 탭으로 이동 (renderOrders 자동 호출됨)
+  showTab(2);
+
+  // 렌더 이후 해당 현장으로 스크롤 + 시각적 하이라이트
+  setTimeout(()=>{
+    const el = document.getElementById(`osr-${pid}`);
+    if(el){
+      el.scrollIntoView({behavior:"smooth", block:"center"});
+      // 연노란색 깜빡임 효과 (2초)
+      const orig = el.style.transition;
+      el.style.transition = "background-color 0.3s ease";
+      const origBg = el.style.backgroundColor;
+      el.style.backgroundColor = "#fef3c7";
+      setTimeout(()=>{
+        el.style.backgroundColor = origBg || "";
+        setTimeout(()=>{ el.style.transition = orig || ""; }, 300);
+      }, 1800);
+    }
+  }, 180);
 }
 
 // ── 발행 이력 ──
@@ -4225,27 +4577,40 @@ function handleEcountFile(e){
         else { unmatched.push(o); }
       });
 
+      // 중복 체크 — 매칭된 현장의 orders에 같은 날짜+같은 금액이 이미 있는지 확인
+      matched.forEach(o=>{
+        const p = projects.find(x=>x.id===o.projectId);
+        o.isDuplicate = !!(p && p.orders && p.orders.some(ex=>ex.date===o.date && ex.amount===o.amount));
+      });
+      const newCount = matched.filter(o=>!o.isDuplicate).length;
+      const dupCount = matched.filter(o=>o.isDuplicate).length;
+
       // 미리보기 렌더
       ecountPendingOrders = matched;
       const el = document.getElementById("ecount-preview");
       let html = `<div style="margin-top:14px">`;
       html += `<div style="display:flex;gap:10px;margin-bottom:12px">
         <div class="stat-card" style="flex:1;text-align:center"><div class="label">총 주문건</div><div class="value v-indigo">${orders.length}건</div></div>
-        <div class="stat-card" style="flex:1;text-align:center"><div class="label">매칭 성공</div><div class="value v-green">${matched.length}건</div></div>
+        <div class="stat-card" style="flex:1;text-align:center"><div class="label">매칭 성공</div><div class="value v-green">${matched.length}건</div>${matched.length?`<div style="font-size:10px;color:#6b7280;margin-top:2px">신규 ${newCount} / 중복 ${dupCount}</div>`:""}</div>
         <div class="stat-card" style="flex:1;text-align:center"><div class="label">매칭 실패</div><div class="value v-red">${unmatched.length}건</div></div>
       </div>`;
 
       if(matched.length){
-        html += `<div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:6px">✅ 입력 가능 (${matched.length}건)</div>
+        html += `<div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:6px">✅ 입력 가능 (${matched.length}건${dupCount>0?` <span style="color:#b45309;font-weight:600">· 중복 ${dupCount}건 포함</span>`:""})</div>
         <div style="max-height:200px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:12px">
         <table style="width:100%;border-collapse:collapse;font-size:11px">
-        <thead><tr style="background:#f9fafb"><th style="padding:6px 8px;text-align:left">날짜</th><th style="padding:6px 8px;text-align:left">거래처</th><th style="padding:6px 8px;text-align:left">현장</th><th style="padding:6px 8px;text-align:right">공급가액</th></tr></thead><tbody>`;
+        <thead><tr style="background:#f9fafb"><th style="padding:6px 8px;text-align:left">상태</th><th style="padding:6px 8px;text-align:left">날짜</th><th style="padding:6px 8px;text-align:left">거래처</th><th style="padding:6px 8px;text-align:left">현장</th><th style="padding:6px 8px;text-align:right">공급가액</th></tr></thead><tbody>`;
         matched.forEach(o=>{
-          html += `<tr style="border-top:1px solid #f3f4f6">
+          const rowBg = o.isDuplicate ? "background:#fefce8;" : "";
+          const statusBadge = o.isDuplicate
+            ? `<span style="background:#fef3c7;color:#b45309;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700;white-space:nowrap">중복</span>`
+            : `<span style="background:#dcfce7;color:#16a34a;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700;white-space:nowrap">신규</span>`;
+          html += `<tr style="border-top:1px solid #f3f4f6;${rowBg}">
+            <td style="padding:5px 8px">${statusBadge}</td>
             <td style="padding:5px 8px">${o.date}</td>
             <td style="padding:5px 8px">${o.customerName}</td>
             <td style="padding:5px 8px;color:#6b7280;font-size:10px">→ ${o.matchedName||""} ${o.matchedApt?("/ "+o.matchedApt):""}</td>
-            <td style="padding:5px 8px;text-align:right;font-weight:600">${Number(o.amount).toLocaleString()}원</td>
+            <td style="padding:5px 8px;text-align:right;font-weight:600${o.isDuplicate?';color:#9ca3af;text-decoration:line-through':''}">${Number(o.amount).toLocaleString()}원</td>
           </tr>`;
         });
         html += `</tbody></table></div>`;
@@ -4253,20 +4618,24 @@ function handleEcountFile(e){
 
       if(unmatched.length){
         html += `<div style="font-size:12px;font-weight:700;color:#dc2626;margin-bottom:6px">⚠️ 매칭 실패 — 앱에 등록된 현장 없음 (${unmatched.length}건)</div>
-        <div style="max-height:120px;overflow-y:auto;border:1px solid #fecaca;border-radius:8px;margin-bottom:12px;background:#fef2f2">
-        <table style="width:100%;border-collapse:collapse;font-size:11px"><tbody>`;
+        <div style="max-height:160px;overflow-y:auto;border:1px solid #fecaca;border-radius:8px;margin-bottom:12px;background:#fef2f2">
+        <table style="width:100%;border-collapse:collapse;font-size:11px">
+        <thead><tr style="background:#fee2e2"><th style="padding:6px 8px;text-align:left">날짜</th><th style="padding:6px 8px;text-align:left">거래처</th><th style="padding:6px 8px;text-align:left">현장(적요)</th><th style="padding:6px 8px;text-align:right">공급가액</th></tr></thead><tbody>`;
         unmatched.forEach(o=>{
           html += `<tr style="border-top:1px solid #fee2e2">
             <td style="padding:5px 8px">${o.date}</td>
             <td style="padding:5px 8px;color:#dc2626">${o.customerName}</td>
+            <td style="padding:5px 8px;color:#6b7280;font-size:11px">${o.aptName ? o.aptName : `<span style="color:#9ca3af">-</span>`}</td>
             <td style="padding:5px 8px;text-align:right">${Number(o.amount).toLocaleString()}원</td>
           </tr>`;
         });
         html += `</tbody></table></div>`;
       }
 
-      if(matched.length){
-        html += `<button class="btn btn-primary" style="width:100%;padding:12px;font-size:13px" onclick="importEcountOrders()">📥 매칭된 ${matched.length}건 자재주문 입력</button>`;
+      if(newCount > 0){
+        html += `<button class="btn btn-primary" style="width:100%;padding:12px;font-size:13px" onclick="importEcountOrders()">📥 신규 ${newCount}건 자재주문 입력${dupCount>0?` <span style="font-size:11px;opacity:0.85;font-weight:400">(중복 ${dupCount}건 제외)</span>`:""}</button>`;
+      } else if(matched.length > 0){
+        html += `<div class="info-box" style="background:#fef3c7;border:1px solid #fde68a;color:#92400e;text-align:center;padding:12px;font-size:12px;border-radius:8px">ℹ️ 매칭된 ${matched.length}건이 모두 이미 입력되어 있습니다. 추가 입력할 신규 건이 없습니다.</div>`;
       }
       html += `</div>`;
       el.innerHTML = html;
@@ -4286,8 +4655,8 @@ function importEcountOrders(){
   ecountPendingOrders.forEach(o=>{
     const p = projects.find(x=>x.id===o.projectId);
     if(!p) return;
-    // 중복 체크: 같은 날짜 + 같은 금액이 이미 있으면 스킵
-    const dup = p.orders.some(ex=>ex.date===o.date && ex.amount===o.amount);
+    // 사전 체크된 중복 플래그(우선) + 실시간 재확인(2차 방어) — 둘 중 하나라도 중복이면 스킵
+    const dup = o.isDuplicate || p.orders.some(ex=>ex.date===o.date && ex.amount===o.amount);
     if(dup){ skipCount++; return; }
     p.orders.push({
       id: Date.now()+Math.random(),
@@ -5692,6 +6061,44 @@ loadHiworksDomain();
 loadN8nWebhook();
 loadCompanyMaster();
 document.getElementById("today-date").textContent=new Date().toLocaleDateString("ko-KR");
+
+// ── 한글 IME 디폴트 자동 적용 ──
+// input/textarea 요소에 lang="ko" 속성을 자동 부여하여 브라우저·OS·모바일 키보드에 한글 IME 힌트 제공
+// (CSS에서는 이미 ime-mode: active가 적용되어 있어 레거시 브라우저도 대응)
+(function setupKoreanIME(){
+  const isKoreanTarget = el => {
+    if(!el || (el.tagName !== "INPUT" && el.tagName !== "TEXTAREA")) return false;
+    if(el.dataset && el.dataset.ime === "off") return false;
+    const t = (el.type || "text").toLowerCase();
+    // 숫자/날짜/시간/이메일/전화/URL/비밀번호/파일/체크박스 등은 한글 IME 대상 아님
+    const nonKoreanTypes = ["number","date","time","datetime-local","email","tel","url","password","file","checkbox","radio","color","range","hidden","submit","button","reset"];
+    return !nonKoreanTypes.includes(t);
+  };
+  const applyLangKo = root => {
+    if(!root || !root.querySelectorAll) return;
+    const targets = root.querySelectorAll("input, textarea");
+    targets.forEach(el=>{
+      if(isKoreanTarget(el) && !el.hasAttribute("lang")){
+        el.setAttribute("lang","ko");
+      }
+    });
+    // root 자체가 input/textarea인 경우
+    if(isKoreanTarget(root) && !root.hasAttribute("lang")){
+      root.setAttribute("lang","ko");
+    }
+  };
+  // 초기 DOM 적용
+  applyLangKo(document);
+  // 동적 DOM 변경 감지 (renderPage 등으로 innerHTML 재생성될 때마다 자동 적용)
+  const observer = new MutationObserver(mutations=>{
+    mutations.forEach(m=>{
+      m.addedNodes.forEach(node=>{
+        if(node.nodeType === 1) applyLangKo(node);
+      });
+    });
+  });
+  observer.observe(document.body, { childList:true, subtree:true });
+})();
 
 // Firebase 자동 연결 (이전 기기에서 설정한 경우 복원)
 (async()=>{
