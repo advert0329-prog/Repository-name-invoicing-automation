@@ -722,7 +722,15 @@ function buildHiworksUrl(to, subject, body){
 // ── 유틸 ──
 const fmtNum = n => (!n && n!==0) ? "-" : Number(n).toLocaleString("ko-KR")+"원";
 const fmtDate = d => d || "-";
-const todayStr = () => new Date().toISOString().slice(0,10);
+// 로컬 시간대(KST) 기준 오늘 날짜 YYYY-MM-DD
+// ※ toISOString()은 UTC 변환이라 KST 오전/늦저녁에 하루 차이 나는 버그가 있어 로컬 기준으로 변경
+const todayStr = () => {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,"0");
+  const dd = String(d.getDate()).padStart(2,"0");
+  return `${y}-${m}-${dd}`;
+};
 
 function typeColor(t){
   if(t==="공고")return"b-gray"; if(t==="컨설팅")return"b-blue"; if(t==="기술자재형")return"b-purple"; if(t==="자재판매형")return"b-orange"; if(t==="타공법")return"b-gray"; return"b-gray";
@@ -1312,6 +1320,7 @@ function showUndoToast(msg, isRestore=false){
 // ══════════ 자재 주문 v3 ══════════
 let ordFilter = "all";      // all | patent | noinv | nodep | late | done
 let ordSearch = "";
+let upSearch = ""; // 미수금 관리 탭 현장 검색어
 let ordExpandedIds = new Set();
 let ordShowCompleted = false;
 let ordPopPid = null, ordPopOid = null, ordPopField = null;
@@ -2539,8 +2548,8 @@ function renderUnpaid(){
   // 청구서 기반 미수금
   const billUnpaid = allBills.filter(b => b.status !== "수금완료");
 
-  // 자재주문 계산서 발행됐지만 미완납(부분입금 포함) 건 → 건별 개별 항목으로 (현장별 그룹핑 X)
-  const orderUnpaid = [];
+  // 자재주문 계산서 발행됐지만 미완납(부분입금 포함) 건 → 현장별 그룹핑 (아코디언 표시용)
+  const orderGroupMap = {};
   projects.forEach(p => {
     p.orders.forEach(o => {
       // 조건: 계산서 발행됨 + 아직 완납 아님 (부분입금 상태도 미수금에 포함)
@@ -2548,15 +2557,31 @@ function renderUnpaid(){
         const total = Number(o.amount)||0;
         const paid  = getOrderPaidAmount(o);
         const remain = total - paid;
-        orderUnpaid.push({
+        if(!orderGroupMap[p.id]){
+          orderGroupMap[p.id] = {
+            _type:"orderGroup",
+            projectId: p.id,
+            customerName: p.customerName,
+            aptName: p.aptName,
+            constructionType: p.constructionType,
+            constructionName: p.constructionName,
+            contactEmail: p.contactEmail,
+            children: [],
+            groupTotalAmount: 0,
+            groupPaidAmount: 0,
+            groupRemainAmount: 0,
+            latestInvoiceDate: "",
+            oldestInvoiceDate: "",
+            hasPartial: false,
+            unpaidOnlyCount: 0, // 부분입금 제외, 순수 미입금 건수
+          };
+        }
+        const g = orderGroupMap[p.id];
+        const isPartial = Array.isArray(o.deposits) && o.deposits.length > 0;
+        g.children.push({
           _type:"order",
           projectId: p.id,
           orderId: o.id,
-          customerName: p.customerName,
-          aptName: p.aptName,
-          constructionType: p.constructionType,
-          constructionName: p.constructionName,
-          contactEmail: p.contactEmail,
           amount: total,
           paidAmount: paid,
           remainAmount: remain,
@@ -2564,27 +2589,56 @@ function renderUnpaid(){
           invoiceDate: o.invoiceDate,
           orderDate: o.date,
           item: o.item||"자재",
+          isPartial,
         });
+        g.groupTotalAmount  += total;
+        g.groupPaidAmount   += paid;
+        g.groupRemainAmount += remain;
+        if(!g.latestInvoiceDate || o.invoiceDate > g.latestInvoiceDate) g.latestInvoiceDate = o.invoiceDate;
+        if(!g.oldestInvoiceDate || o.invoiceDate < g.oldestInvoiceDate) g.oldestInvoiceDate = o.invoiceDate;
+        if(isPartial) g.hasPartial = true;
+        else g.unpaidOnlyCount++;
       }
     });
   });
+  const orderUnpaid = Object.values(orderGroupMap);
+  // 각 그룹 내 자식을 오래된 계산서 순으로 정렬
+  orderUnpaid.forEach(g => {
+    g.children.sort((a,b) => (a.invoiceDate||"") < (b.invoiceDate||"") ? -1 : 1);
+  });
 
-  const allUnpaidItems = [...billUnpaid.map(b=>({...b,_type:"bill"})), ...orderUnpaid];
+  // 검색 필터 적용 (현장명/거래처명 부분 일치, 대소문자 무시)
+  const _q = (upSearch||"").trim().toLowerCase();
+  const matchSearch = (item) => {
+    if(!_q) return true;
+    const apt = (item.aptName||"").toLowerCase();
+    const cust = (item.customerName||"").toLowerCase();
+    const cName = (item.constructionName||"").toLowerCase();
+    return apt.includes(_q) || cust.includes(_q) || cName.includes(_q);
+  };
+  const billFiltered = billUnpaid.filter(matchSearch);
+  const orderFiltered = orderUnpaid.filter(matchSearch);
 
-  if(allUnpaidItems.length===0 && allBills.length===0 && orderUnpaid.length===0){
+  const allUnpaidItemsFull = [...billUnpaid.map(b=>({...b,_type:"bill"})), ...orderUnpaid];
+  const allUnpaidItems = [...billFiltered.map(b=>({...b,_type:"bill"})), ...orderFiltered];
+
+  if(allUnpaidItemsFull.length===0 && allBills.length===0 && orderUnpaid.length===0){
     document.getElementById("page-4").innerHTML=`<div style="text-align:center;padding:60px 0;color:#9ca3af"><div style="font-size:40px">📭</div><p style="margin-top:12px">발행된 청구서가 없습니다.</p></div>`;
     return;
   }
 
-  // 총액: 청구서 + 자재주문 전체 청구액
-  const totalAmt  = allBills.reduce((s,b)=>s+b.amount,0) + orderUnpaid.reduce((s,o)=>s+o.amount,0);
+  // 총액: 청구서 + 자재주문 전체 청구액 (그룹 합산) — 검색 무관 전체 기준
+  const totalAmt  = allBills.reduce((s,b)=>s+b.amount,0) + orderUnpaid.reduce((s,g)=>s+g.groupTotalAmount,0);
   // 미수금: 청구서 미수 + 자재주문 잔액 합 (부분입금 반영)
-  const unpaidAmt = billUnpaid.reduce((s,b)=>s+b.amount,0) + orderUnpaid.reduce((s,o)=>s+o.remainAmount,0);
+  const unpaidAmt = billUnpaid.reduce((s,b)=>s+b.amount,0) + orderUnpaid.reduce((s,g)=>s+g.groupRemainAmount,0);
   const paidAmt   = allBills.filter(b=>b.status==="수금완료").reduce((s,b)=>s+b.amount,0);
 
   // ── 에이징 분류 헬퍼 ──
   function getAge(item){
-    const refDate = item._type==="order" ? item.invoiceDate : (item.invoiceDate||item.issuedDate);
+    // orderGroup은 가장 오래된 계산서 기준 (가장 지연 많이 된 건 기준)
+    const refDate = item._type==="orderGroup" ? item.oldestInvoiceDate
+                  : item._type==="order" ? item.invoiceDate
+                  : (item.invoiceDate||item.issuedDate);
     if(!refDate) return null;
     return Math.floor((Date.now()-new Date(refDate).getTime())/86400000);
   }
@@ -2595,7 +2649,7 @@ function renderUnpaid(){
     return `<span class="age-pill age-ok">${days===0?'발행당일':'+'+days+'일'}</span>`;
   }
 
-  // 경과일 내림차순 정렬
+  // 경과일 내림차순 정렬 (검색 필터링 반영)
   const sorted = [...allUnpaidItems].sort((a,b)=>{
     const da=getAge(a)??-1, db=getAge(b)??-1;
     return db-da;
@@ -2605,22 +2659,49 @@ function renderUnpaid(){
   const cnt30 = sorted.filter(x=>{const d=getAge(x)??0;return d>=30&&d<60;}).length;
   const cntOk = sorted.filter(x=>(getAge(x)??0)<30).length;
   const tot   = sorted.length;
+  // 실제 미수금 건수: 청구서 미수 건수 + 자재주문 미수 건수 (그룹 아닌 실건) — 전체 기준
+  const totActualCount = billUnpaid.length + orderUnpaid.reduce((s,g)=>s+g.children.length, 0);
   // 에이징 바 비율
   const bar60 = tot?Math.max(3,Math.round(cnt60/tot*100)):0;
   const bar30 = tot?Math.max(3,Math.round(cnt30/tot*100)):0;
   const barOk = 100-bar60-bar30;
+
+  // 검색어 이스케이프 (XSS + 속성 주입 방지)
+  const searchVal = (upSearch||"").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 
   let html=`<p class="sec-title">💰 미수금 관리</p>
   <div class="grid-4" style="margin-bottom:12px">
     <div class="stat-card" style="text-align:center;padding:12px"><div class="label">전체 청구</div><div class="value v-gray" style="font-size:16px">${fmtNum(totalAmt)}</div></div>
     <div class="stat-card" style="text-align:center;padding:12px"><div class="label">미수금</div><div class="value ${unpaidAmt>0?"v-red":"v-gray"}" style="font-size:16px">${fmtNum(unpaidAmt)}</div></div>
     <div class="stat-card" style="text-align:center;padding:12px"><div class="label">수금 완료</div><div class="value v-green" style="font-size:16px">${fmtNum(paidAmt)}</div></div>
-    <div class="stat-card" style="text-align:center;padding:12px"><div class="label">미수 건수</div><div class="value ${tot>0?"v-red":"v-gray"}" style="font-size:16px">${tot}건</div></div>
+    <div class="stat-card" style="text-align:center;padding:12px"><div class="label">미수 건수</div><div class="value ${totActualCount>0?"v-red":"v-gray"}" style="font-size:16px">${totActualCount}건</div>${orderUnpaid.length>0?`<div style="font-size:10px;color:#6b7280;margin-top:2px">현장 ${orderUnpaid.length + billUnpaid.length}개</div>`:""}</div>
+  </div>
+
+  <!-- 현장 검색창 -->
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:2px 10px 2px 12px">
+    <span style="color:#6b7280;font-size:13px">🔍</span>
+    <input type="text" id="up-search-input" value="${searchVal}"
+      placeholder="현장명·거래처명·공사명 검색..."
+      lang="ko"
+      oninput="upSearchInput(this.value)"
+      style="flex:1;border:none;outline:none;padding:9px 6px;font-size:12px;font-family:inherit;background:transparent;min-width:0"/>
+    ${upSearch?`<button onclick="upClearSearch()" style="background:none;border:none;color:#9ca3af;cursor:pointer;padding:4px 6px;font-size:13px" title="검색 지우기">✕</button>`:""}
+    ${upSearch?`<span style="font-size:11px;color:#6366f1;white-space:nowrap;font-weight:600">${allUnpaidItems.length} / ${allUnpaidItemsFull.length}건</span>`:""}
   </div>`;
 
-  if(allUnpaidItems.length===0){
+  if(allUnpaidItemsFull.length===0){
     html+=`<div class="info-box info-green" style="text-align:center;padding:16px">✅ 모든 청구가 수금 완료되었습니다.</div>`;
     document.getElementById("page-4").innerHTML=html;
+    return;
+  }
+  if(allUnpaidItems.length===0){
+    html+=`<div class="info-box info-yellow" style="text-align:center;padding:16px">🔍 "${searchVal}" 검색 결과가 없습니다.</div>`;
+    document.getElementById("page-4").innerHTML=html;
+    // 검색창 포커스 유지 + 커서 위치 복원
+    setTimeout(()=>{
+      const inp = document.getElementById("up-search-input");
+      if(inp){ inp.focus(); const len=inp.value.length; inp.setSelectionRange(len,len); }
+    },0);
     return;
   }
 
@@ -2662,66 +2743,91 @@ function renderUnpaid(){
     const rowId = `uprow-${idx}`;
     const days  = getAge(item);
 
-    if(item._type==="order"){
-      // ── 자재계산서 미입금 (건별 개별 행, 부분입금 지원) ──
-      const refLabel = item.invoiceDate||"-";
-      const itemLabel = item.item||"자재";
-      const hasPartial = item.deposits.length > 0;
-      const amtCell = hasPartial
-        ? `<div style="line-height:1.3">
-            <div style="font-weight:700;color:#dc2626">잔액 ${fmtNum(item.remainAmount)}</div>
-            <div style="font-size:10px;color:#9ca3af">총 ${fmtNum(item.amount)} · 입금 ${fmtNum(item.paidAmount)}</div>
-          </div>`
-        : `<div style="font-weight:700;color:#4338ca">${fmtNum(item.amount)}</div>`;
+    if(item._type==="orderGroup"){
+      // ── 자재계산서 현장별 그룹 (아코디언) ──
+      const g = item;
+      const childCount = g.children.length;
+      const hasPartial = g.hasPartial;
+      const unpaidOnly = g.unpaidOnlyCount; // 부분입금 제외한 순수 미입금 건수
+      const dateRangeLabel = g.oldestInvoiceDate === g.latestInvoiceDate
+        ? g.oldestInvoiceDate
+        : `${g.oldestInvoiceDate} ~ ${g.latestInvoiceDate}`;
       const statusCell = hasPartial
-        ? `<span style="display:inline-block;padding:2px 6px;background:#fef3c7;color:#b45309;border-radius:4px;font-size:10px;font-weight:700">🟡 부분 ${item.deposits.length}건</span>`
-        : `<span style="font-size:11px;color:#dc2626">미입금</span>`;
+        ? `<span style="display:inline-block;padding:2px 6px;background:#fef3c7;color:#b45309;border-radius:4px;font-size:10px;font-weight:700">🟡 일부 부분입금</span>`
+        : `<span style="font-size:11px;color:#dc2626">미입금 ${childCount}건</span>`;
+      const amtCell = (g.groupPaidAmount > 0)
+        ? `<div style="line-height:1.3">
+            <div style="font-weight:700;color:#dc2626">잔액 ${fmtNum(g.groupRemainAmount)}</div>
+            <div style="font-size:10px;color:#9ca3af">총 ${fmtNum(g.groupTotalAmount)} · 입금 ${fmtNum(g.groupPaidAmount)}</div>
+          </div>`
+        : `<div style="font-weight:700;color:#4338ca">${fmtNum(g.groupRemainAmount)}</div>`;
 
+      // 일괄입금 버튼: unpaidOnly(부분입금 제외) 건이 있을 때만 활성, 전부 부분입금이면 비활성
+      const bulkBtn = unpaidOnly > 0
+        ? `<button class="btn btn-sm" style="background:#16a34a;color:#fff;border:none;padding:3px 8px;font-size:11px;font-weight:700;margin-right:3px;white-space:nowrap" onclick="event.stopPropagation();bulkMarkOrdersPaid(${g.projectId})" title="이 현장의 미입금 ${unpaidOnly}건을 오늘 날짜로 일괄 완납 처리 (부분입금 건은 건드리지 않음)">✅ 일괄입금 ${unpaidOnly}건</button>`
+        : `<button class="btn btn-sm" disabled style="background:#e5e7eb;color:#9ca3af;border:none;padding:3px 8px;font-size:11px;margin-right:3px;white-space:nowrap;cursor:not-allowed" title="모두 부분입금 상태입니다. 건별로 처리해주세요.">✅ 일괄입금</button>`;
+
+      // 그룹 요약 행 (토글)
       html+=`<tr class="data-row" onclick="upToggle('${rowId}')" data-age="${days??-1}">
         <td><span id="${rowId}-arr" style="font-size:10px;color:#9ca3af">▶</span></td>
         <td>
-          <div style="font-weight:700;font-size:12px;color:#111827">${item.aptName||item.customerName}</div>
-          <div style="font-size:11px;color:#6b7280">${item.aptName?item.customerName:''}${item.orderDate?` <span style="color:#9ca3af">· 주문 ${item.orderDate}</span>`:""}</div>
+          <div style="font-weight:700;font-size:12px;color:#111827">${g.aptName||g.customerName}</div>
+          <div style="font-size:11px;color:#6b7280">${g.aptName?g.customerName:''}<span style="color:#9ca3af"> · 계산서 ${dateRangeLabel}</span></div>
         </td>
-        <td>${badge("자재계산서","b-orange")}<span style="font-size:10px;color:#9ca3af;margin-left:3px">${itemLabel}</span></td>
+        <td>${badge("자재계산서","b-orange")}<span style="font-size:10px;color:#9ca3af;margin-left:3px">${childCount}건</span></td>
         <td style="text-align:right">${amtCell}</td>
         <td style="text-align:right">${agePill(days)}</td>
-        <td style="font-size:11px;color:#374151">${refLabel}</td>
+        <td style="font-size:11px;color:#374151">${g.oldestInvoiceDate||"-"}</td>
         <td>${statusCell}</td>
         <td style="font-size:11px;color:#9ca3af">—</td>
         <td style="text-align:right;white-space:nowrap">
-          <button class="btn btn-sm" style="background:#16a34a;color:#fff;border:none;padding:3px 8px;font-size:11px;font-weight:700;margin-right:3px" onclick="event.stopPropagation();quickMarkOrderPaid(${item.projectId},${item.orderId})" title="오늘 날짜로 잔액 전액 입금 처리">✅ ${hasPartial?'잔액입금':'오늘입금'}</button>
-          <button class="btn btn-blue btn-sm" style="padding:3px 8px;font-size:11px" onclick="event.stopPropagation();jumpToOrderAndExpand(${item.projectId})" title="자재주문 탭에서 상세 처리">🔗 주문</button>
+          ${bulkBtn}
+          <button class="btn btn-blue btn-sm" style="padding:3px 8px;font-size:11px" onclick="event.stopPropagation();jumpToOrderAndExpand(${g.projectId})" title="자재주문 탭에서 상세 처리">🔗 주문</button>
         </td>
       </tr>
       <tr class="expand-row" id="${rowId}" style="display:none">
-        <td colspan="9">
-          <div class="up-expand-inner" style="grid-template-columns:1fr auto;align-items:start;gap:12px" onclick="event.stopPropagation()">
-            <div>
-              <div style="display:flex;gap:12px;margin-bottom:10px;flex-wrap:wrap">
-                <div style="font-size:11px;color:#6b7280"><span style="color:#374151;font-weight:600">계산서 발행일</span> ${item.invoiceDate||"-"}</div>
-                <div style="font-size:11px;color:#6b7280"><span style="color:#374151;font-weight:600">주문일</span> ${item.orderDate||"-"}</div>
-                <div style="font-size:11px;color:#6b7280"><span style="color:#374151;font-weight:600">주문액</span> ${fmtNum(item.amount)}원</div>
-                <div style="font-size:11px;color:#16a34a"><span style="color:#374151;font-weight:600">기입금</span> ${fmtNum(item.paidAmount)}원</div>
-                <div style="font-size:12px;color:#dc2626;font-weight:700"><span style="color:#374151;font-weight:600">잔액</span> ${fmtNum(item.remainAmount)}원</div>
-              </div>
-              ${hasPartial ? `
-                <div style="background:#f9fafb;border-radius:8px;padding:8px 10px;margin-bottom:6px">
-                  <div style="font-size:10px;font-weight:700;color:#6b7280;margin-bottom:4px">📜 입금 이력 (${item.deposits.length}건)</div>
-                  ${item.deposits.map(d=>`<div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0;border-bottom:1px dashed #e5e7eb">
-                    <span style="color:#374151">${d.date}${d.note?` <span style="color:#9ca3af">· ${d.note}</span>`:""}</span>
-                    <span style="font-weight:600;color:#16a34a">+${fmtNum(d.amount)}원</span>
-                  </div>`).join("")}
-                </div>
-              ` : ``}
-              <div style="padding:8px 10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:11px;color:#1e40af;line-height:1.5">
-                💡 <strong>✅ ${hasPartial?'잔액입금':'오늘입금'}</strong> = 잔액 ${fmtNum(item.remainAmount)}원을 오늘 날짜로 전액 입금.
-                부분입금은 <strong>🔗 주문</strong> 탭 입금 버튼에서 금액·날짜 지정하세요.
-              </div>
+        <td colspan="9" style="padding:0;background:#fafafa">
+          <div style="padding:10px 14px" onclick="event.stopPropagation()">
+            <div style="font-size:11px;font-weight:700;color:#6b7280;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+              <span>📋 이 현장의 미입금 자재계산서 ${childCount}건</span>
+              ${hasPartial?`<span style="font-weight:400;font-size:10px;color:#b45309">🟡 부분입금 ${g.children.filter(c=>c.isPartial).length}건은 일괄입금에서 제외됩니다</span>`:""}
             </div>
-            <div class="up-expand-btns" style="flex-direction:column;gap:5px">
-              <button class="btn btn-sm" style="background:#16a34a;color:#fff;border:none;font-weight:700;white-space:nowrap;width:140px" onclick="event.stopPropagation();quickMarkOrderPaid(${item.projectId},${item.orderId})">✅ ${hasPartial?'잔액입금':'오늘 입금완료'}</button>
-              <button class="btn btn-blue btn-sm" style="white-space:nowrap;width:140px" onclick="event.stopPropagation();jumpToOrderAndExpand(${item.projectId})">🔗 자재주문 이동</button>
+            <table style="width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,.04)">
+              <thead><tr style="background:#f3f4f6">
+                <th style="padding:6px 10px;font-size:10px;font-weight:700;color:#6b7280;text-align:left">발행일</th>
+                <th style="padding:6px 10px;font-size:10px;font-weight:700;color:#6b7280;text-align:left">주문일</th>
+                <th style="padding:6px 10px;font-size:10px;font-weight:700;color:#6b7280;text-align:right">금액</th>
+                <th style="padding:6px 10px;font-size:10px;font-weight:700;color:#6b7280;text-align:center">상태</th>
+                <th style="padding:6px 10px;font-size:10px;font-weight:700;color:#6b7280;text-align:right">액션</th>
+              </tr></thead>
+              <tbody>
+              ${g.children.map(c=>{
+                const cAge = c.invoiceDate ? Math.floor((Date.now()-new Date(c.invoiceDate).getTime())/86400000) : null;
+                const cAgeBadge = cAge!==null ? (cAge>=60?`<span style="color:#dc2626;font-size:10px;font-weight:700">+${cAge}일</span>`:cAge>=30?`<span style="color:#ea580c;font-size:10px;font-weight:700">+${cAge}일</span>`:`<span style="color:#9ca3af;font-size:10px">+${cAge}일</span>`) : "";
+                const cAmtCell = c.isPartial
+                  ? `<div style="line-height:1.3"><div style="font-weight:700;color:#dc2626;font-size:11px">잔액 ${fmtNum(c.remainAmount)}</div><div style="font-size:10px;color:#9ca3af">${fmtNum(c.paidAmount)}/${fmtNum(c.amount)}</div></div>`
+                  : `<div style="font-weight:700;color:#4338ca;font-size:11px">${fmtNum(c.amount)}</div>`;
+                const cStatus = c.isPartial
+                  ? `<span style="display:inline-block;padding:1px 5px;background:#fef3c7;color:#b45309;border-radius:3px;font-size:10px;font-weight:700">🟡 부분 ${c.deposits.length}건</span>`
+                  : `<span style="font-size:10px;color:#dc2626">미입금</span>`;
+                const depositHistory = c.isPartial
+                  ? `<div style="font-size:10px;color:#6b7280;margin-top:2px">${c.deposits.map(d=>`${d.date} +${fmtNum(d.amount)}`).join(" · ")}</div>`
+                  : "";
+                return `<tr style="border-top:1px solid #f3f4f6">
+                  <td style="padding:7px 10px;font-size:11px;color:#374151">${c.invoiceDate||"-"} ${cAgeBadge}</td>
+                  <td style="padding:7px 10px;font-size:11px;color:#6b7280">${c.orderDate||"-"}</td>
+                  <td style="padding:7px 10px;text-align:right">${cAmtCell}</td>
+                  <td style="padding:7px 10px;text-align:center">${cStatus}${depositHistory}</td>
+                  <td style="padding:7px 10px;text-align:right">
+                    <button class="btn btn-sm" style="background:#16a34a;color:#fff;border:none;padding:2px 7px;font-size:10px;font-weight:700" onclick="event.stopPropagation();quickMarkOrderPaid(${c.projectId},${c.orderId})" title="이 건만 오늘 날짜로 입금 처리">✅ ${c.isPartial?'잔액':'오늘'}</button>
+                  </td>
+                </tr>`;
+              }).join("")}
+              </tbody>
+            </table>
+            <div style="padding:8px 10px;margin-top:8px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:11px;color:#1e40af;line-height:1.5">
+              💡 <strong>✅ 일괄입금</strong> = 이 현장의 순수 미입금 건만 오늘 날짜로 완납 처리 (부분입금 건 제외).
+              건별 처리는 각 행의 <strong>✅</strong> 버튼, 과거일자·부분입금은 <strong>🔗 주문</strong> 버튼으로 자재주문 탭에서.
             </div>
           </div>
         </td>
@@ -2792,9 +2898,21 @@ function upToggle(rowId){
   const row = document.getElementById(rowId);
   const arr = document.getElementById(rowId+"-arr");
   if(!row) return;
-  const open = row.style.display!=="none";
-  row.style.display = open ? "none" : "table-row";
-  if(arr) arr.textContent = open ? "▶" : "▼";
+  const willOpen = row.style.display === "none";
+
+  // 다른 열린 행 모두 닫기 (단일 오픈 아코디언)
+  if(willOpen){
+    document.querySelectorAll("#up-tbody tr.expand-row").forEach(otherRow => {
+      if(otherRow.id !== rowId && otherRow.style.display !== "none"){
+        otherRow.style.display = "none";
+        const otherArr = document.getElementById(otherRow.id + "-arr");
+        if(otherArr) otherArr.textContent = "▶";
+      }
+    });
+  }
+
+  row.style.display = willOpen ? "table-row" : "none";
+  if(arr) arr.textContent = willOpen ? "▼" : "▶";
 }
 
 function upSetFilter(mode, btn){
@@ -2817,6 +2935,27 @@ function upSetFilter(mode, btn){
       if(arr) arr.textContent="▶";
     }
   });
+}
+
+// ── 미수금 관리 탭 검색 ──
+let _upSearchTimer = null;
+function upSearchInput(val){
+  upSearch = val;
+  // 디바운스: 타이핑 중에는 재렌더 안 하고 250ms 후 한 번만 (한글 IME 호환)
+  clearTimeout(_upSearchTimer);
+  _upSearchTimer = setTimeout(()=>{
+    renderUnpaid();
+    // 렌더 후 검색창 포커스 복원 + 커서 끝으로
+    setTimeout(()=>{
+      const inp = document.getElementById("up-search-input");
+      if(inp){ inp.focus(); const len=inp.value.length; inp.setSelectionRange(len,len); }
+    },0);
+  }, 250);
+}
+function upClearSearch(){
+  upSearch = "";
+  clearTimeout(_upSearchTimer);
+  renderUnpaid();
 }
 
 function updateBillDelayReason(bid, field, value){
@@ -2868,6 +3007,40 @@ function quickMarkOrderPaid(pid, oid){
 
   saveData();
   if(window._showSaved) window._showSaved(`✅ ${p.aptName||p.customerName} 자재계산서 ${result.fullyPaid?"완납":"입금"}`);
+  renderPage(currentTab);
+}
+
+// ── 현장 내 미입금 자재주문 일괄 입금처리 (부분입금 건은 제외, 오늘 날짜 기준) ──
+function bulkMarkOrdersPaid(pid){
+  const p = projects.find(x=>x.id===pid);
+  if(!p) return;
+  // 대상: 계산서 발행됨 + 완납 아님 + 부분입금 아님 (순수 미입금만)
+  const targets = p.orders.filter(o =>
+    o.invoiceDate &&
+    !isOrderFullyPaid(o) &&
+    !(Array.isArray(o.deposits) && o.deposits.length > 0)
+  );
+  if(targets.length === 0){ alert("일괄 처리 대상 미입금 건이 없습니다."); return; }
+
+  const totalRemain = targets.reduce((s,o)=>s+getOrderRemainAmount(o), 0);
+  const excludedCount = p.orders.filter(o =>
+    o.invoiceDate && !isOrderFullyPaid(o) && Array.isArray(o.deposits) && o.deposits.length > 0
+  ).length;
+
+  const msg = `"${p.aptName||p.customerName}" 현장의 미입금 자재계산서 ${targets.length}건을\n오늘 날짜(${todayStr()})로 일괄 완납 처리하시겠습니까?\n\n합계 ${fmtNum(totalRemain)}원 · ${targets.length}건\n${excludedCount>0?`\n※ 부분입금 상태인 ${excludedCount}건은 제외됩니다 (건별로 직접 처리해주세요).`:""}`;
+  if(!confirm(msg)) return;
+
+  let successCount = 0, failCount = 0;
+  targets.forEach(o => {
+    const remain = getOrderRemainAmount(o);
+    const result = addOrderDeposit(p.id, o.id, todayStr(), remain, "일괄 완납");
+    if(result.ok) successCount++;
+    else failCount++;
+  });
+
+  saveData();
+  if(window._showSaved) window._showSaved(`✅ ${p.aptName||p.customerName} ${successCount}건 일괄 완납`);
+  if(failCount > 0) alert(`${successCount}건 완납 처리됨\n${failCount}건 처리 실패`);
   renderPage(currentTab);
 }
 
@@ -4501,6 +4674,7 @@ function handleEcountFile(e){
 
       // 데이터 행 파싱 + 주문번호·거래처별 합산
       const orderMap = {}; // key: "orderNo|거래처명"
+      let storeSkipCount = 0; // 스토어판매(B2C) 제외 카운트
       for(let i=headerIdx+1; i<rows.length; i++){
         const row = rows[i];
         const dateRaw = String(row[dateCol]||"").trim();
@@ -4513,6 +4687,8 @@ function handleEcountFile(e){
         if(!dateMatch || !cust || amt===0) continue;
         // 소계/합계 행 스킵
         if(dateRaw.includes("계")||cust===""||!dateMatch) continue;
+        // 스토어판매(B2C) 완전 제외 — POUR스토어 개인 구매자는 현장 매칭 대상 아님
+        if(cust.includes("스토어판매") || cust.includes("스토어 판매")){ storeSkipCount++; continue; }
 
         const dateStr = `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`;
         // 주문번호 추출 (날짜 뒤 -N)
@@ -4527,9 +4703,9 @@ function handleEcountFile(e){
       }
 
       const orders = Object.values(orderMap).filter(o=>o.amount>0);
-      if(!orders.length){ alert("유효한 판매 데이터가 없습니다."); return; }
+      if(!orders.length){ alert("유효한 판매 데이터가 없습니다." + (storeSkipCount>0?`\n(스토어판매 ${storeSkipCount}건은 자동 제외)`:"")); return; }
 
-      // 현장 매칭 분석
+      // 현장 매칭 분석 (엄격 매칭)
       const matched = [], unmatched = [];
       const normalize = s => s.replace(/[㈜㈜\(\)주유\s]/g,"").toLowerCase();
       orders.forEach(o=>{
@@ -4554,26 +4730,21 @@ function handleEcountFile(e){
         };
 
         let p = null;
+        const hasNote = o.aptName && o.aptName.length >= 3;
 
-        // 1순위: 거래처명 + 적요(아파트명) 동시 일치
-        if(o.aptName && o.aptName.length >= 3){
+        if(hasNote){
+          // ── 엑셀 적요(현장명)가 있는 경우: 반드시 거래처 + 적요가 동시에 매칭되어야 함 ──
+          // (거래처만 같다고 엉뚱한 현장에 매칭되는 것 방지)
           p = eligibleProjects.find(proj => custMatch(proj) && aptMatch(proj, o.aptName));
-        }
-
-        // 2순위: 거래처명만 일치 (단, 해당 거래처 현장이 1개뿐일 때)
-        if(!p){
+          // 적요 매칭 실패 시 그냥 unmatched (자동 매칭 금지)
+        } else {
+          // ── 엑셀 적요가 없는 경우에만: 거래처명 일치 현장이 1개뿐이면 매칭 ──
           const byName = eligibleProjects.filter(custMatch);
           if(byName.length === 1) p = byName[0];
+          // 여러 개면 구분 불가 → unmatched
         }
 
-        // 3순위: 거래처명 일치 현장이 여러 개면 → 적요로 추가 구분
-        if(!p && o.aptName && o.aptName.length >= 3){
-          const byName = eligibleProjects.filter(custMatch);
-          p = byName.find(proj => aptMatch(proj, o.aptName));
-        }
-
-        const matched_p = p;
-        if(matched_p){ matched.push({...o, projectId: matched_p.id, matchedName: matched_p.customerName, matchedApt: matched_p.aptName||""}); }
+        if(p){ matched.push({...o, projectId: p.id, matchedName: p.customerName, matchedApt: p.aptName||""}); }
         else { unmatched.push(o); }
       });
 
@@ -4590,7 +4761,7 @@ function handleEcountFile(e){
       const el = document.getElementById("ecount-preview");
       let html = `<div style="margin-top:14px">`;
       html += `<div style="display:flex;gap:10px;margin-bottom:12px">
-        <div class="stat-card" style="flex:1;text-align:center"><div class="label">총 주문건</div><div class="value v-indigo">${orders.length}건</div></div>
+        <div class="stat-card" style="flex:1;text-align:center"><div class="label">총 주문건</div><div class="value v-indigo">${orders.length}건</div>${storeSkipCount>0?`<div style="font-size:10px;color:#6b7280;margin-top:2px">스토어판매 ${storeSkipCount}행 제외</div>`:""}</div>
         <div class="stat-card" style="flex:1;text-align:center"><div class="label">매칭 성공</div><div class="value v-green">${matched.length}건</div>${matched.length?`<div style="font-size:10px;color:#6b7280;margin-top:2px">신규 ${newCount} / 중복 ${dupCount}</div>`:""}</div>
         <div class="stat-card" style="flex:1;text-align:center"><div class="label">매칭 실패</div><div class="value v-red">${unmatched.length}건</div></div>
       </div>`;
