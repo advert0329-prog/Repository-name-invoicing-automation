@@ -6303,6 +6303,8 @@ function collectUnpaidByCustomer(referenceDate) {
   const prevYear  = prevMonthDate.getFullYear();
   const prevMonth = prevMonthDate.getMonth();
   const monthLabel = prevMonth + 1;
+  // [트랙 B] 기준월 마지막 날 23:59:59 — 그 이후 발행분은 메일에서 제외 (아직 결제 의무 미발생)
+  const prevMonthEnd = new Date(prevYear, prevMonth + 1, 0, 23, 59, 59, 999);
 
   const groupMap = {};
   const getGroup = (name, email) => {
@@ -6322,6 +6324,8 @@ function collectUnpaidByCustomer(referenceDate) {
     if (!dateStr || !amount) return;
     const d = new Date(dateStr);
     if (isNaN(d.getTime()) || d > ref) return;
+    // [트랙 B] 기준월(전월) 이후 발행분 제외 — "X월분 미수 안내"인데 그 다음 달 발행 건이 들어가면 어색함
+    if (d > prevMonthEnd) return;
 
     if (amount < 0) {
       g.refunds.push({ aptName:meta.aptName||"", item:meta.item||"환불·공제", amount, date:dateStr });
