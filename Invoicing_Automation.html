@@ -3135,14 +3135,41 @@ function openTrackBPreview(customerName, stage){
 
     <!-- 액션 영역 -->
     <div style="padding:14px 20px 18px;display:flex;justify-content:space-between;align-items:center;gap:10px">
-      <div style="font-size:10px;color:#9ca3af;flex:1">
-        ⚠️ 발송 기능은 다음 단계(STEP 3-2b-2-C)에서 추가됩니다. 현재는 본문 검토만 가능합니다.
+      <div style="font-size:10px;color:#6b7280;flex:1;line-height:1.5">
+        ✅ <b>발송 흐름</b>: "발송 진행" 클릭 → 메일 발송 모달 열림 → n8n 자동발송 또는 Gmail/메일앱 선택 가능<br/>
+        <span style="color:#9ca3af">발송 이력 자동 기록은 추후 단계에서 추가됩니다.</span>
       </div>
-      <button onclick="closeModal('modal-trackb-preview')" style="padding:9px 20px;background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">닫기</button>
+      <button onclick="closeModal('modal-trackb-preview')" style="padding:9px 18px;background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">취소</button>
+      <button onclick="proceedTrackBSend('${esc(mail.to)}', '${esc(mail.subject).replace(/'/g,"\\'")}')" style="padding:9px 22px;background:${meta.color};color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;box-shadow:0 1px 2px rgba(0,0,0,.1)">📤 발송 진행</button>
     </div>
   `;
   document.getElementById("tb-preview-body").innerHTML = body;
   openModal("modal-trackb-preview");
+}
+
+// ─── [트랙 B] 발송 진행: 편집된 본문을 기존 메일 모달로 넘김 ───
+// 사용자는 그 모달에서 n8n 자동발송 / Gmail / 메일앱 중 선택
+function proceedTrackBSend(to, subject){
+  // 트랙B 모달의 textarea에서 (편집됐을 수 있는) 최신 본문 가져오기
+  const textareaEl = document.getElementById("tb-preview-body-text");
+  const finalBody = textareaEl ? textareaEl.value : "";
+
+  if (!finalBody.trim()) {
+    alert("본문이 비어있습니다. 발송을 중단합니다.");
+    return;
+  }
+  if (!to) {
+    alert("받는 사람 이메일이 없습니다. 발송을 중단합니다.");
+    return;
+  }
+
+  // selBillId 비워두기 - 그룹 발송이라 특정 청구서 1건에 매핑되지 않음
+  // (기존 sendEmail()이 selBillId 있을 때만 emailSentDate 기록하므로 자동으로 안전)
+  selBillId = null;
+
+  // 트랙B 모달 닫고 → 기존 메일 모달 열기
+  closeModal("modal-trackb-preview");
+  openEmailModal(to, subject, finalBody);
 }
 
 function renderUnpaidByCustomer(){
@@ -3183,7 +3210,7 @@ function renderUnpaidByCustomer(){
   <!-- 안내 박스 -->
   <div class="info-box" style="background:#fef9e7;border-left:3px solid #d4a017;padding:10px 14px;margin-bottom:12px;border-radius:6px;font-size:12px;color:#5a4515">
     💡 업체별 그룹 미수 조회 모드입니다. 같은 업체의 여러 현장 미수금을 한 묶음으로 보여줍니다.<br/>
-    <span style="color:#9a7a13;font-size:11px">※ 차수별 메일 미리보기까지 지원됩니다 (STEP 3-2b-2-B). 실제 발송 기능은 다음 단계(C)에서 추가됩니다.</span>
+    <span style="color:#9a7a13;font-size:11px">※ 차수 버튼 클릭 → 본문 검토/수정 → "발송 진행" → n8n 자동발송 또는 Gmail/메일앱 선택. 수동 클릭 발송이며, 발송 이력 자동 기록은 추후 단계에서 추가됩니다.</span>
   </div>
 
   <!-- 검색창 -->
