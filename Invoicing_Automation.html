@@ -1403,6 +1403,8 @@ let ordFilter = "all";      // all | patent | noinv | nodep | late | done
 let ordSearch = "";
 let upSearch = ""; // 미수금 관리 탭 현장 검색어
 let upAgeFilter = "all"; // 미수금 관리 탭 에이징 필터: all | 60 | 30 | ok
+let upViewMode = "bill"; // 미수금 관리 탭 보기 모드: bill (청구서별 기본) | customer (업체별)
+let upExpandedCustomers = new Set(); // 업체별 보기에서 펼쳐진 업체명들
 let ordExpandedIds = new Set();
 let ordShowCompleted = false;
 let ordPopPid = null, ordPopOid = null, ordPopField = null;
@@ -2657,6 +2659,9 @@ function renderBillingList(){
 
 // ── 미수금 관리 ──
 function renderUnpaid(){
+  // [트랙 B] 업체별 보기 모드면 별도 렌더로 위임
+  if (upViewMode === "customer") return renderUnpaidByCustomer();
+
   // 청구서 기반 미수금
   const billUnpaid = allBills.filter(b => b.status !== "수금완료");
 
@@ -2797,6 +2802,13 @@ function renderUnpaid(){
   const searchVal = (upSearch||"").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 
   let html=`<p class="sec-title">💰 미수금 관리</p>
+
+  <!-- [트랙 B] 보기 모드 토글 -->
+  <div style="display:flex;gap:6px;margin-bottom:10px;background:#f3f4f6;padding:4px;border-radius:8px;width:fit-content">
+    <button onclick="upSetViewMode('bill')" style="padding:7px 14px;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;background:#fff;color:#1f2937;box-shadow:0 1px 2px rgba(0,0,0,.06);font-family:inherit">📄 청구서별</button>
+    <button onclick="upSetViewMode('customer')" style="padding:7px 14px;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;background:transparent;color:#6b7280;font-family:inherit">📨 업체별</button>
+  </div>
+
   <div class="grid-4" style="margin-bottom:12px">
     <div class="stat-card" style="text-align:center;padding:12px"><div class="label">전체 청구</div><div class="value v-gray" style="font-size:16px">${fmtNum(totalAmt)}</div></div>
     <div class="stat-card" style="text-align:center;padding:12px"><div class="label">미수금</div><div class="value ${unpaidAmt>0?"v-red":"v-gray"}" style="font-size:16px">${fmtNum(unpaidAmt)}</div></div>
@@ -3027,6 +3039,164 @@ function upToggle(rowId){
 
   row.style.display = willOpen ? "table-row" : "none";
   if(arr) arr.textContent = willOpen ? "▼" : "▶";
+}
+
+// ════════════════════════════════════════════
+// [트랙 B] 미수금 관리 - 업체별 보기
+// ════════════════════════════════════════════
+
+function upSetViewMode(mode){
+  upViewMode = mode;
+  paginationState.unpaid = 1;
+  renderUnpaid();
+}
+
+function upToggleCustomer(customerName){
+  if (upExpandedCustomers.has(customerName)) upExpandedCustomers.delete(customerName);
+  else upExpandedCustomers.add(customerName);
+  renderUnpaidByCustomer();
+}
+
+function renderUnpaidByCustomer(){
+  const groups = collectUnpaidByCustomer();
+  const totalNet = groups.reduce((s,g)=>s+g.totalUnpaid, 0);
+  const withRefunds = groups.filter(g => g.refunds.length > 0).length;
+
+  // 검색 필터 (업체명 / 현장명)
+  const searchVal = (upSearch||"").trim().toLowerCase();
+  const filtered = !searchVal ? groups : groups.filter(g => {
+    if ((g.customerName||"").toLowerCase().includes(searchVal)) return true;
+    return g.sites.some(s => (s.aptName||"").toLowerCase().includes(searchVal));
+  });
+
+  let html = `<p class="sec-title">💰 미수금 관리</p>
+
+  <!-- 보기 모드 토글 -->
+  <div style="display:flex;gap:6px;margin-bottom:10px;background:#f3f4f6;padding:4px;border-radius:8px;width:fit-content">
+    <button onclick="upSetViewMode('bill')" style="padding:7px 14px;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;background:transparent;color:#6b7280;font-family:inherit">📄 청구서별</button>
+    <button onclick="upSetViewMode('customer')" style="padding:7px 14px;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;background:#fff;color:#1f2937;box-shadow:0 1px 2px rgba(0,0,0,.06);font-family:inherit">📨 업체별</button>
+  </div>
+
+  <!-- 요약 카드 -->
+  <div class="grid-4" style="margin-bottom:12px">
+    <div class="stat-card" style="text-align:center;padding:12px"><div class="label">발송 대상 업체</div><div class="value v-blue" style="font-size:16px">${groups.length}개</div></div>
+    <div class="stat-card" style="text-align:center;padding:12px"><div class="label">순미수 합계</div><div class="value ${totalNet>0?"v-red":"v-gray"}" style="font-size:16px">${fmtNum(totalNet)}</div></div>
+    <div class="stat-card" style="text-align:center;padding:12px"><div class="label">환불·공제 포함</div><div class="value v-gray" style="font-size:16px">${withRefunds}개</div></div>
+    <div class="stat-card" style="text-align:center;padding:12px"><div class="label">기준 월 (전월)</div><div class="value v-gray" style="font-size:16px">${(groups[0]||{}).monthLabel || "-"}월</div></div>
+  </div>
+
+  <!-- 안내 박스 -->
+  <div class="info-box" style="background:#fef9e7;border-left:3px solid #d4a017;padding:10px 14px;margin-bottom:12px;border-radius:6px;font-size:12px;color:#5a4515">
+    💡 업체별 그룹 미수 조회 모드입니다. 같은 업체의 여러 현장 미수금을 한 묶음으로 보여줍니다.<br/>
+    <span style="color:#9a7a13;font-size:11px">※ 메일 발송 기능은 다음 단계(STEP 3-2b-2-B)에서 추가됩니다. 현재는 조회 전용입니다.</span>
+  </div>
+
+  <!-- 검색창 -->
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:2px 10px 2px 12px">
+    <span style="color:#6b7280;font-size:13px">🔍</span>
+    <input type="text" id="up-search-input" value="${searchVal}"
+      placeholder="업체명·현장명 검색..."
+      lang="ko"
+      oninput="upSearchInput(this.value)"
+      style="flex:1;border:none;outline:none;padding:9px 6px;font-size:12px;font-family:inherit;background:transparent;min-width:0"/>
+    ${searchVal?`<button onclick="upClearSearch()" style="background:none;border:none;color:#9ca3af;cursor:pointer;padding:4px 6px;font-size:13px" title="검색 지우기">✕</button>`:""}
+    ${searchVal?`<span style="font-size:11px;color:#6366f1;white-space:nowrap;font-weight:600">${filtered.length} / ${groups.length}개</span>`:""}
+  </div>`;
+
+  if (groups.length === 0) {
+    html += `<div class="info-box info-green" style="text-align:center;padding:16px">✅ 미수 업체가 없습니다.</div>`;
+    document.getElementById("page-4").innerHTML = html;
+    return;
+  }
+  if (filtered.length === 0) {
+    html += `<div class="info-box info-yellow" style="text-align:center;padding:16px">🔍 "${searchVal}" 검색 결과가 없습니다.</div>`;
+    document.getElementById("page-4").innerHTML = html;
+    setTimeout(()=>{
+      const inp = document.getElementById("up-search-input");
+      if(inp){ inp.focus(); const len=inp.value.length; inp.setSelectionRange(len,len); }
+    }, 0);
+    return;
+  }
+
+  // 정렬: 순미수 큰 순
+  const sorted = [...filtered].sort((a,b) => b.totalUnpaid - a.totalUnpaid);
+
+  // 업체 카드
+  html += `<div style="display:flex;flex-direction:column;gap:8px">`;
+  sorted.forEach(g => {
+    const expanded = upExpandedCustomers.has(g.customerName);
+    const hasEmail = !!g.customerEmail;
+    const refundCount = (g.refunds||[]).length;
+    const positiveSum = g.sites.reduce((s,site)=>s+site._subTotal||0, 0);
+    const refundSum = (g.refunds||[]).reduce((s,r)=>s+(Number(r.amount)||0), 0);
+    // _subTotal 미계산 보완
+    const sitesNorm = g.sites.map(s => {
+      const prevSum = (s.previousItems||[]).reduce((a,b)=>a+(Number(b.amount)||0), 0);
+      return { ...s, _subTotal: (Number(s.newAmount)||0) + prevSum };
+    });
+
+    html += `
+    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden">
+      <!-- 헤더 (클릭으로 토글) -->
+      <div onclick="upToggleCustomer('${(g.customerName||'').replace(/'/g,"\\'")}')" style="padding:14px 16px;cursor:pointer;display:flex;align-items:center;gap:12px;border-bottom:${expanded?'1px solid #f3f4f6':'none'};transition:background .15s" onmouseover="this.style.background='#f9fafb'" onmouseout="this.style.background='#fff'">
+        <span style="font-size:11px;color:#9ca3af;width:14px">${expanded?'▼':'▶'}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:700;color:#1f2937;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span>${g.customerName}</span>
+            <span style="font-size:10px;font-weight:600;color:#6366f1;background:#eef2ff;padding:2px 7px;border-radius:999px">${g.sites.length}개 현장</span>
+            ${refundCount>0?`<span style="font-size:10px;font-weight:600;color:#92400e;background:#fef3c7;padding:2px 7px;border-radius:999px">환불·공제 ${refundCount}건 상계</span>`:''}
+            ${!hasEmail?`<span style="font-size:10px;font-weight:600;color:#991b1b;background:#fee2e2;padding:2px 7px;border-radius:999px">⚠️ 이메일 미입력</span>`:''}
+          </div>
+          <div style="font-size:11px;color:#6b7280;margin-top:3px">
+            ${hasEmail?g.customerEmail:'(이메일 등록 필요)'}
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:15px;font-weight:700;color:#dc2626">${fmtNum(g.totalUnpaid)}</div>
+          ${refundCount>0?`<div style="font-size:10px;color:#9ca3af;margin-top:2px">청구 ${fmtNum(positiveSum)} ${fmtNum(refundSum)}</div>`:''}
+        </div>
+      </div>
+
+      ${expanded ? `
+      <!-- 펼침 영역: 현장 목록 + 환불 -->
+      <div style="padding:12px 16px;background:#fafafa">
+        ${sitesNorm.map(site => `
+          <div style="padding:8px 10px;background:#fff;border:1px solid #f3f4f6;border-radius:6px;margin-bottom:6px">
+            <div style="font-size:12px;font-weight:600;color:#1f2937;margin-bottom:4px">■ ${site.aptName||'(현장명 없음)'}</div>
+            ${site.newAmount>0 ? `<div style="font-size:11px;color:#4b5563;padding-left:10px">· ${(site.newIssuedDate||'').slice(5).replace('-','월 ')}일 발행 ${fmtNum(site.newAmount)}</div>` : ''}
+            ${(site.previousItems||[]).map(p => `
+              <div style="font-size:11px;color:#4b5563;padding-left:10px">· ${(p.issuedDate||'').slice(5).replace('-','월 ')}일 청구 ${fmtNum(p.amount)} <span style="color:#dc2626">— ${p.daysOverdue}일 경과 (이전 미수)</span></div>
+            `).join('')}
+            <div style="font-size:11px;font-weight:600;color:#1f2937;padding-left:10px;margin-top:3px">· 소계: ${fmtNum(site._subTotal)}</div>
+          </div>
+        `).join('')}
+
+        ${refundCount>0 ? `
+          <div style="padding:8px 10px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;margin-top:8px">
+            <div style="font-size:12px;font-weight:600;color:#92400e;margin-bottom:4px">■ 환불·공제 (상계 적용)</div>
+            ${g.refunds.map(r => `
+              <div style="font-size:11px;color:#78350f;padding-left:10px">· ${(r.date||'').slice(5).replace('-','월 ')}일 ${r.item||'환불·공제'} ${fmtNum(r.amount)}</div>
+            `).join('')}
+          </div>
+        ` : ''}
+
+        <!-- 메일 버튼 자리 (다음 단계에서 활성화) -->
+        <div style="margin-top:10px;padding:10px;background:#f3f4f6;border-radius:6px;text-align:center;font-size:11px;color:#9ca3af">
+          📨 메일 발송 버튼은 STEP 3-2b-2-B 단계에서 추가됩니다
+        </div>
+      </div>
+      ` : ''}
+    </div>`;
+  });
+  html += `</div>`;
+
+  document.getElementById("page-4").innerHTML = html;
+
+  // 검색창 포커스 복원
+  setTimeout(()=>{
+    const inp = document.getElementById("up-search-input");
+    if(inp && document.activeElement !== inp){ /* don't steal focus on first render */ }
+  }, 0);
 }
 
 // ── 미수금 관리 탭 에이징 필터 ──
