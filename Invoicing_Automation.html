@@ -5856,6 +5856,217 @@ async function sendEmail(){
   }
 }
 
+// ═══════════════════════════════════════════════
+// 트랙 B 자재 대금 청구 — 빌더 + 데이터 수집기
+// (그룹 단위 미수 안내 메일 1차/2차/2.5차/3차)
+// ═══════════════════════════════════════════════
+
+// ─── 메일 빌더 진입점 ─────────────────────────
+const TRACK_B_TEMPLATES = {
+  "1":   buildStage1Mail,
+  "2":   buildStage2Mail,
+  "2.5": buildStage2_5Mail,
+  "3":   buildStage3Mail,
+};
+
+function buildTrackBMail(group, stage) {
+  const fn = TRACK_B_TEMPLATES[String(stage)];
+  if (!fn) throw new Error("Unknown stage: " + stage);
+  return fn(_withComputedTotals(group));
+}
+
+function _withComputedTotals(group) {
+  const sites = (group.sites||[]).map(s => {
+    const prevSum = (s.previousItems||[]).reduce((a,b)=>a+(Number(b.amount)||0), 0);
+    return { ...s, _subTotal: (Number(s.newAmount)||0) + prevSum };
+  });
+  const refunds = (group.refunds||[]).filter(r => Number(r.amount) < 0);
+  const sitesSum   = sites.reduce((a,s)=>a+s._subTotal, 0);
+  const refundsSum = refunds.reduce((a,r)=>a+(Number(r.amount)||0), 0);
+  return { ...group, sites, refunds, totalUnpaid: sitesSum + refundsSum };
+}
+
+// ─── 헬퍼 ───────────────────────────────────
+function _fmtKRW(n){
+  const v = Number(n)||0;
+  return v < 0 ? "-₩" + Math.abs(v).toLocaleString("ko-KR") : "₩" + v.toLocaleString("ko-KR");
+}
+function _fmtMD(s){ if(!s)return "—"; const d=new Date(s); return isNaN(d)?s:(d.getMonth()+1)+"월 "+d.getDate()+"일"; }
+
+function _siteBlock(site) {
+  const lines = [];
+  const title = site.aptName || site.constructionName || "현장";
+  lines.push("■ " + title);
+  if ((Number(site.newAmount)||0) > 0) {
+    lines.push("   · " + _fmtMD(site.newIssuedDate) + " 발행 " + _fmtKRW(site.newAmount));
+  }
+  (site.previousItems||[]).forEach(p => {
+    lines.push("   · " + _fmtMD(p.issuedDate) + " 청구 " + _fmtKRW(p.amount) + " — " + p.daysOverdue + "일 경과 (이전 미수)");
+  });
+  lines.push("   · 소계: " + _fmtKRW(site._subTotal));
+  return lines.join("\n");
+}
+function _sitesBlock(sites){ return (sites||[]).map(_siteBlock).join("\n\n"); }
+
+function _refundsBlock(refunds) {
+  if (!refunds || refunds.length === 0) return "";
+  const lines = ["■ 환불·공제 (상계 적용)"];
+  refunds.forEach(r => {
+    lines.push("   · " + _fmtMD(r.date) + " " + (r.item || "환불·공제") + " " + _fmtKRW(r.amount));
+  });
+  return "\n\n" + lines.join("\n");
+}
+
+// ─── 4종 메일 템플릿 ──────────────────────────
+function buildStage1Mail(g) {
+  return {
+    to: g.customerEmail, stage: "1",
+    subject: "[넷폼알앤디] " + g.customerName + " 자재 대금 입금 안내 (" + g.monthLabel + "월 기준)",
+    body:
+      g.customerName + " 담당자님 안녕하세요.\n넷폼알앤디입니다.\n\n" +
+      "평소 저희 회사에 보내주시는 신뢰와 협조에 깊이 감사드립니다.\n" +
+      g.monthLabel + "월 기준 미입금 자재 대금 내역을 아래와 같이 안내드리오니 확인 후 처리 부탁드립니다.\n\n" +
+      _sitesBlock(g.sites) + _refundsBlock(g.refunds) + "\n\n" +
+      "■ " + g.customerName + " 전체 미납 합계: " + _fmtKRW(g.totalUnpaid) + "\n\n" +
+      "이미 처리가 완료된 건이라면 본 메일은 무시해 주시기 바랍니다.\n" +
+      "귀사 현장의 원활한 운영과 안정적인 자재 수급을 위해 대금 결제 일정 협조를 부탁드립니다.\n\n" +
+      "감사합니다.\n\n㈜넷폼알앤디\n대표번호: 1899-2734"
+  };
+}
+
+function buildStage2Mail(g) {
+  return {
+    to: g.customerEmail, stage: "2",
+    subject: "[넷폼알앤디] " + g.customerName + " 자재 대금 처리 재안내 (" + g.monthLabel + "월 기준)",
+    body:
+      g.customerName + " 담당자님 안녕하세요.\n넷폼알앤디입니다.\n\n" +
+      "지난 " + (g.monthLabel + 1) + "월 10일 안내해 드린 미결제 대금이 아직 확인되지 않아 다시 한번 안내드립니다.\n" +
+      "원활한 결제 관리를 위해 당월 말일까지 대금 처리를 부탁드리며, 현장의 안정적인 자재 수급에 차질이 없도록 협조를 요청드립니다.\n\n" +
+      _sitesBlock(g.sites) + _refundsBlock(g.refunds) + "\n\n" +
+      "■ " + g.customerName + " 전체 미납 합계: " + _fmtKRW(g.totalUnpaid) + "\n\n" +
+      "해당 기한을 경과할 경우, 익월 초 미수 대금으로 확정되어 별도의 안내를 드리게 됩니다.\n" +
+      "또한, 향후 일정 협의를 위해 담당자의 유선 연락이 진행될 수 있사오니 원활한 업무 처리를 위해 너른 양해와 협조 부탁드립니다.\n\n" +
+      "이미 처리가 완료된 건이라면 본 메일은 무시해 주시기 바랍니다.\n\n" +
+      "감사합니다.\n\n㈜넷폼알앤디\n대표번호: 1899-2734"
+  };
+}
+
+function buildStage2_5Mail(g) {
+  return {
+    to: g.customerEmail, stage: "2.5",
+    subject: "[넷폼알앤디] " + g.customerName + " " + g.monthLabel + "월분 미결제 대금 확정 안내 및 입금 일정 협의 요청",
+    body:
+      g.customerName + " 담당자님 안녕하세요.\n넷폼알앤디입니다.\n\n" +
+      "당사에서 지난 " + (g.monthLabel + 1) + "월 25일 안내해 드린 입금 기한(말일) 내에 대금 확인이 되지 않아,\n" +
+      "내부 절차에 따라 해당 건이 '미결제 대금'으로 확정되었음을 알려드립니다.\n\n" +
+      _sitesBlock(g.sites) + _refundsBlock(g.refunds) + "\n\n" +
+      "■ " + g.customerName + " 전체 미결제 확정 합계: " + _fmtKRW(g.totalUnpaid) + "\n\n" +
+      "■ 협의 요청 사항\n" +
+      "   · 미입금 사유 및 입금 가능 일정을 3영업일 이내 회신 부탁드립니다.\n" +
+      "   · 본 메일 발송 후 담당자가 별도로 유선 연락드릴 예정입니다.\n" +
+      "   · 분할 납부가 필요한 경우 일정·금액을 함께 제시해 주십시오.\n\n" +
+      "당사는 귀사와의 지속적인 신뢰 관계를 최우선으로 생각하고 있습니다.\n" +
+      "부득이한 사정으로 일정이 지연되는 경우, 담당자와의 협의를 통해 원만히 조정될 수 있도록 적극적인 협조 부탁드립니다.\n\n" +
+      "감사합니다.\n\n㈜넷폼알앤디\n대표번호: 1899-2734"
+  };
+}
+
+function buildStage3Mail(g) {
+  return {
+    to: g.customerEmail, stage: "3",
+    subject: "[넷폼알앤디] " + g.customerName + " 자재 대금 미수 관련 법적 조치 예고 통지",
+    body:
+      g.customerName + " 귀중\n\n" +
+      "당사 ㈜넷폼알앤디는 귀사 자재 대금 미수금 관련하여 다음과 같이 정식 통지드립니다.\n\n" +
+      _sitesBlock(g.sites) + _refundsBlock(g.refunds) + "\n\n" +
+      "■ " + g.customerName + " 전체 미수금: " + _fmtKRW(g.totalUnpaid) + "\n" +
+      "※ 위 미수금은 최초 청구서 발행일 기준 90일을 경과한 건입니다.\n\n" +
+      "당사의 1·2·2.5차 안내에도 불구하고 입금이 이루어지지 않아 부득이하게 본 통지를 발송합니다.\n" +
+      "본 통지 수령 후 7일 이내에 입금 예정일과 입금 방식을 서면(이메일 또는 공문)으로 회신하여 주시기 바랍니다.\n\n" +
+      "회신이 없거나 미이행될 경우 다음 조치가 순차적으로 집행됩니다.\n\n" +
+      "   1단계 — 여신 한도 즉시 중단 (추가 외상 거래 불가)\n" +
+      "   2단계 — 귀사 전 현장 자재 발주 중단\n" +
+      "   3단계 — 신규 현장 수주 지원 중단 (협약사 혜택 박탈)\n" +
+      "   4단계 — MOU 협약 효력 정지 및 해지 절차 개시\n" +
+      "   5단계 — 채권 가압류 등 법적 조치 진행\n\n" +
+      "본 사안은 당사 대표 승인 하에 발송된 정식 통지이며,\n" +
+      "원만한 해결을 위한 협의의 여지는 회신 시점까지 열려 있음을 알려드립니다.\n\n" +
+      "㈜넷폼알앤디\n대표이사 [성명]\n대표번호: 1899-2734"
+  };
+}
+
+// ═══════════════════════════════════════════════
+// 데이터 수집기: projects/allBills → 업체 그룹 변환
+// 음수 환불은 group.refunds에 분리 / 순환불 업체 자동 제외
+// ═══════════════════════════════════════════════
+function collectUnpaidByCustomer(referenceDate) {
+  const ref = referenceDate ? new Date(referenceDate) : new Date();
+  const prevMonthDate = new Date(ref);
+  prevMonthDate.setMonth(prevMonthDate.getMonth() - 1);
+  const prevYear  = prevMonthDate.getFullYear();
+  const prevMonth = prevMonthDate.getMonth();
+  const monthLabel = prevMonth + 1;
+
+  const groupMap = {};
+  const getGroup = (name, email) => {
+    if (!groupMap[name]) groupMap[name] = {
+      customerName:name, customerEmail:email||"", monthLabel,
+      sites:{}, refunds:[], totalUnpaid:0,
+    };
+    return groupMap[name];
+  };
+  const getSite = (g, apt, cn) => {
+    const key = (apt||"")+"|"+(cn||"");
+    if (!g.sites[key]) g.sites[key] = { aptName:apt||"", constructionName:cn||"", newAmount:0, newIssuedDate:"", previousItems:[] };
+    return g.sites[key];
+  };
+
+  const handleItem = (g, dateStr, amount, meta) => {
+    if (!dateStr || !amount) return;
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime()) || d > ref) return;
+
+    if (amount < 0) {
+      g.refunds.push({ aptName:meta.aptName||"", item:meta.item||"환불·공제", amount, date:dateStr });
+      g.totalUnpaid += amount;
+      return;
+    }
+    const s = getSite(g, meta.aptName, meta.constructionName);
+    const isNew = (d.getFullYear()===prevYear && d.getMonth()===prevMonth);
+    if (isNew) {
+      s.newAmount += amount;
+      if (!s.newIssuedDate || dateStr < s.newIssuedDate) s.newIssuedDate = dateStr;
+    } else {
+      s.previousItems.push({ issuedDate:dateStr, amount, daysOverdue:Math.floor((ref-d)/86400000) });
+    }
+    g.totalUnpaid += amount;
+  };
+
+  allBills.forEach(b => {
+    if (b.status === "수금완료") return;
+    const refDate = b.invoiceDate || b.issuedDate;
+    if (!refDate || !b.customerName) return;
+    const email = b.contactEmail || (companyMaster.find(c => c.name === b.customerName) || {}).email || "";
+    const g = getGroup(b.customerName, email);
+    handleItem(g, refDate, Number(b.amount)||0, { aptName:b.aptName, constructionName:b.constructionName, item:b.type||"청구서" });
+  });
+
+  projects.forEach(p => {
+    (p.orders||[]).forEach(o => {
+      if (!o.invoiceDate || isOrderFullyPaid(o)) return;
+      const remain = (Number(o.amount)||0) - getOrderPaidAmount(o);
+      if (remain === 0 || !p.customerName) return;
+      const email = p.contactEmail || (companyMaster.find(c => c.name === p.customerName) || {}).email || "";
+      const g = getGroup(p.customerName, email);
+      handleItem(g, o.invoiceDate, remain, { aptName:p.aptName, constructionName:p.constructionName, item:o.item||"자재" });
+    });
+  });
+
+  return Object.values(groupMap)
+    .map(g => ({ ...g, sites: Object.values(g.sites).filter(s => s.newAmount>0 || s.previousItems.length>0) }))
+    .filter(g => g.totalUnpaid > 0);  // 순환불·순미수0 업체 자동 제외
+}
+
 function openDunningEmail(bid){
   const b=allBills.find(x=>x.id===bid);selBillId=bid;
   const _dTo = b.contactEmail || (companyMaster.find(c=>c.name===b.customerName)||{}).email || "";
