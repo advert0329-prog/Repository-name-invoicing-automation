@@ -10,6 +10,7 @@
 <!-- Firebase SDK (compat) -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <style>
 :root{
   --indigo:#4338ca;--indigo-dark:#3730a3;--indigo-light:#e0e7ff;
@@ -566,6 +567,41 @@ input[type="url"], input[type="password"]{
       <button class="modal-close" onclick="closeModal('modal-project-history')">✕</button>
     </div>
     <div class="modal-body" id="history-modal-body"></div>
+  </div>
+</div>
+
+<!-- [인증] 로그인 모달 — 페이지 로드 시 즉시 표시, 인증 확인되면 닫힘 -->
+<div class="modal-overlay" id="modal-auth-login" style="display:flex">
+  <div class="modal" style="max-width:420px">
+    <div style="padding:32px 32px 24px;text-align:center">
+      <div style="font-size:48px;margin-bottom:8px">🔐</div>
+      <h2 style="font-size:18px;font-weight:700;color:#1f2937;margin-bottom:6px">대금청구 자동화 시스템</h2>
+      <p style="font-size:12px;color:#6b7280">로그인 후 사용하실 수 있습니다</p>
+    </div>
+    <div style="padding:0 32px 28px">
+      <div style="margin-bottom:14px">
+        <label style="display:block;font-size:11px;font-weight:600;color:#374151;margin-bottom:6px">이메일</label>
+        <input type="email" id="auth-email" placeholder="이메일 입력" autocomplete="username"
+          style="width:100%;padding:11px 14px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:13px;font-family:inherit;outline:none;box-sizing:border-box;transition:border-color .15s"
+          onfocus="this.style.borderColor='#4338ca'" onblur="this.style.borderColor='#e5e7eb'"
+          onkeydown="if(event.key==='Enter'){document.getElementById('auth-password').focus()}"/>
+      </div>
+      <div style="margin-bottom:14px">
+        <label style="display:block;font-size:11px;font-weight:600;color:#374151;margin-bottom:6px">비밀번호</label>
+        <input type="password" id="auth-password" placeholder="비밀번호 입력" autocomplete="current-password"
+          style="width:100%;padding:11px 14px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:13px;font-family:inherit;outline:none;box-sizing:border-box;transition:border-color .15s"
+          onfocus="this.style.borderColor='#4338ca'" onblur="this.style.borderColor='#e5e7eb'"
+          onkeydown="if(event.key==='Enter')doLogin()"/>
+      </div>
+      <div id="auth-error" style="display:none;padding:9px 12px;background:#fee2e2;color:#991b1b;border-radius:6px;font-size:11px;margin-bottom:12px;border-left:3px solid #dc2626"></div>
+      <button id="auth-login-btn" onclick="doLogin()"
+        style="width:100%;padding:11px;background:#4338ca;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;transition:background .15s"
+        onmouseover="this.style.background='#3730a3'" onmouseout="this.style.background='#4338ca'">로그인</button>
+      <div style="margin-top:16px;padding-top:16px;border-top:1px solid #f3f4f6;font-size:10.5px;color:#9ca3af;text-align:center;line-height:1.6">
+        🔒 인증된 사용자만 거래처 미수금 데이터에 접근 가능합니다.<br/>
+        비밀번호 분실 시 관리자에게 문의하세요.
+      </div>
+    </div>
   </div>
 </div>
 
@@ -6646,6 +6682,118 @@ function restoreBackup(e){
 const SAVE_KEY = "billing_app_data_v2";
 const FB_CONFIG_KEY = "fb_config_v1";
 
+// ════════════════════════════════════════════
+// [인증] Firebase Authentication
+// ════════════════════════════════════════════
+let _authInitialized = false;
+let _currentUser = null;
+
+function authInit(cfg){
+  if (_authInitialized) return;
+  if (!firebase.apps.length) firebase.initializeApp(cfg);
+  // 로그인 영구 유지 (브라우저 닫아도 유지)
+  firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(()=>{});
+  // 인증 상태 변경 감지
+  firebase.auth().onAuthStateChanged(user => {
+    _currentUser = user;
+    if (user) {
+      // 로그인 성공
+      document.getElementById("modal-auth-login").style.display = "none";
+      document.body.style.overflow = "";
+      authShowUserBadge(user);
+      // Firebase DB 초기화 (이미 안 되어 있으면)
+      if (!_fbRef) {
+        const c = fbLoadConfig();
+        if (c) fbInit(c).then(() => fbLoad().then(() => { fbListen(); renderPage(currentTab); }));
+      } else {
+        // 이미 DB 있으면 리스너만 재시작
+        fbLoad().then(() => { fbListen(); renderPage(currentTab); });
+      }
+    } else {
+      // 로그아웃 또는 미인증
+      document.getElementById("modal-auth-login").style.display = "flex";
+      document.body.style.overflow = "hidden";
+      // 비밀번호 필드 초기화
+      const pw = document.getElementById("auth-password");
+      if (pw) pw.value = "";
+      authHideUserBadge();
+    }
+  });
+  _authInitialized = true;
+}
+
+async function doLogin(){
+  const email = (document.getElementById("auth-email").value||"").trim();
+  const password = document.getElementById("auth-password").value||"";
+  const errEl = document.getElementById("auth-error");
+  const btn = document.getElementById("auth-login-btn");
+
+  errEl.style.display = "none";
+
+  if (!email || !password) {
+    errEl.textContent = "이메일과 비밀번호를 모두 입력해 주세요.";
+    errEl.style.display = "block";
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = "로그인 중...";
+  btn.style.background = "#9ca3af";
+
+  try {
+    await firebase.auth().signInWithEmailAndPassword(email, password);
+    // 성공 시 onAuthStateChanged에서 모달 자동 닫힘
+  } catch (err) {
+    let msg = "로그인 실패";
+    switch (err.code) {
+      case "auth/invalid-email": msg = "이메일 형식이 올바르지 않습니다."; break;
+      case "auth/user-not-found": msg = "등록되지 않은 이메일입니다."; break;
+      case "auth/wrong-password":
+      case "auth/invalid-credential": msg = "이메일 또는 비밀번호가 올바르지 않습니다."; break;
+      case "auth/too-many-requests": msg = "로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요."; break;
+      case "auth/network-request-failed": msg = "네트워크 오류. 인터넷 연결을 확인해 주세요."; break;
+      default: msg = "로그인 실패: " + err.message;
+    }
+    errEl.textContent = msg;
+    errEl.style.display = "block";
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "로그인";
+    btn.style.background = "#4338ca";
+  }
+}
+
+async function doLogout(){
+  if (!confirm("로그아웃 하시겠습니까?")) return;
+  try {
+    await firebase.auth().signOut();
+    // onAuthStateChanged가 자동으로 로그인 모달 표시
+  } catch (err) {
+    alert("로그아웃 실패: " + err.message);
+  }
+}
+
+function authShowUserBadge(user){
+  let badge = document.getElementById("auth-user-badge");
+  if (!badge) {
+    badge = document.createElement("div");
+    badge.id = "auth-user-badge";
+    badge.style.cssText = "position:fixed;top:14px;right:18px;z-index:9999;display:flex;align-items:center;gap:8px;background:#fff;border:1px solid #e5e7eb;border-radius:999px;padding:6px 14px 6px 8px;box-shadow:0 2px 8px rgba(0,0,0,.06);font-family:inherit";
+    badge.innerHTML = `
+      <span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;background:#4338ca;color:#fff;border-radius:50%;font-size:11px;font-weight:700">👤</span>
+      <span id="auth-user-email" style="font-size:11px;color:#374151;font-weight:600"></span>
+      <button onclick="doLogout()" title="로그아웃" style="background:none;border:none;color:#9ca3af;cursor:pointer;font-size:11px;padding:2px 6px;border-radius:4px;font-family:inherit" onmouseover="this.style.background='#f3f4f6';this.style.color='#dc2626'" onmouseout="this.style.background='none';this.style.color='#9ca3af'">로그아웃</button>
+    `;
+    document.body.appendChild(badge);
+  }
+  document.getElementById("auth-user-email").textContent = user.email || user.uid;
+}
+
+function authHideUserBadge(){
+  const badge = document.getElementById("auth-user-badge");
+  if (badge) badge.remove();
+}
+
 // ── Firebase 동기화 ──
 let _fbDb = null, _fbRef = null, _fbListening = false, _fbIgnoreNext = false;
 
@@ -6888,7 +7036,12 @@ document.getElementById("today-date").textContent=new Date().toLocaleDateString(
 (async()=>{
   const cfg = fbLoadConfig();
   if(cfg){
+    // [인증] Firebase Auth 초기화 - 인증 상태 감지하여 모달 표시
+    authInit(cfg);
     await fbConnect(cfg);
+  } else {
+    // Firebase config 없으면 인증도 못 함 - 일단 그대로 진행
+    console.warn("Firebase config 없음 - 인증 시스템 비활성. 설정 탭에서 Firebase 등록 후 새로고침하세요.");
   }
 })();
 
