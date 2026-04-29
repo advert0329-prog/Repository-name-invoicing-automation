@@ -6704,10 +6704,20 @@ function authInit(cfg){
       // Firebase DB 초기화 (이미 안 되어 있으면)
       if (!_fbRef) {
         const c = fbLoadConfig();
-        if (c) fbInit(c).then(() => fbLoad().then(() => { fbListen(); renderPage(currentTab); }));
+        if (c) fbInit(c).then(() => fbLoad().then(() => { 
+          fbListen(); 
+          tbhFbConnect();              // [트랙 B / STEP 4-A] 이력 Firebase 연결
+          tbhFbLoad().then(() => tbhFbListen());  // 이력 로드 + 리스너
+          renderPage(currentTab); 
+        }));
       } else {
         // 이미 DB 있으면 리스너만 재시작
-        fbLoad().then(() => { fbListen(); renderPage(currentTab); });
+        fbLoad().then(() => { 
+          fbListen(); 
+          if (!_tbhFbRef) tbhFbConnect();
+          tbhFbLoad().then(() => tbhFbListen());
+          renderPage(currentTab); 
+        });
       }
     } else {
       // 로그아웃 또는 미인증
@@ -6792,6 +6802,196 @@ function authShowUserBadge(user){
 function authHideUserBadge(){
   const badge = document.getElementById("auth-user-badge");
   if (badge) badge.remove();
+}
+
+// ════════════════════════════════════════════
+// [트랙 B / STEP 4-A] 발송 이력 시스템
+//
+// 데이터 모델:
+//   trackBHistory = {
+//     "㈜업체명": {
+//       lastStage: "1" | "2" | "2.5" | "3",
+//       history: [
+//         {
+//           stage:        "1" | "2" | "2.5" | "3",
+//           sentAt:       "2026-05-11T09:30:00.000Z",  // ISO timestamp
+//           monthLabel:   4,                            // 발송 시점 기준월 (전월)
+//           totalAmount:  32632500,                     // 발송 시점 미수액 (스냅샷)
+//           toEmail:      "...@...",                    // 실제 발송된 수신 이메일
+//           channel:      "n8n"                         // 발송 경로 (n8n만 기록)
+//         }
+//       ]
+//     }
+//   }
+//
+// 저장 방식: localStorage 우선 + Firebase 동기화 (인증 후)
+// ════════════════════════════════════════════
+
+const TBH_KEY = "trackb_history_v1";   // localStorage 키
+let trackBHistory = {};                // 메모리 캐시
+let _tbhFbRef = null;                  // Firebase 참조
+let _tbhListening = false;             // Firebase 리스너 활성 여부
+let _tbhIgnoreNext = false;            // Firebase 리스너 자기 자신 무시
+
+// ─── localStorage ───
+function tbhLoadLocal(){
+  try {
+    const raw = localStorage.getItem(TBH_KEY);
+    trackBHistory = raw ? (JSON.parse(raw) || {}) : {};
+  } catch(e) {
+    console.warn("trackBHistory localStorage 로드 실패:", e);
+    trackBHistory = {};
+  }
+  return trackBHistory;
+}
+
+function tbhSaveLocal(){
+  try {
+    localStorage.setItem(TBH_KEY, JSON.stringify(trackBHistory));
+  } catch(e) {
+    console.warn("trackBHistory localStorage 저장 실패:", e);
+  }
+}
+
+// ─── Firebase 동기화 ───
+async function tbhFbSave(){
+  if (!_tbhFbRef) return;  // Firebase 미연결 시 건너뜀
+  try {
+    _tbhIgnoreNext = true;
+    await _tbhFbRef.set(trackBHistory);
+  } catch(e) {
+    console.warn("trackBHistory Firebase 저장 실패:", e.message);
+  }
+}
+
+async function tbhFbLoad(){
+  if (!_tbhFbRef) return false;
+  try {
+    const snap = await _tbhFbRef.get();
+    if (snap.exists()) {
+      trackBHistory = snap.val() || {};
+      tbhSaveLocal();  // localStorage에도 동기화
+      return true;
+    }
+    return false;
+  } catch(e) {
+    console.warn("trackBHistory Firebase 로드 실패:", e.message);
+    return false;
+  }
+}
+
+function tbhFbListen(){
+  if (!_tbhFbRef || _tbhListening) return;
+  _tbhListening = true;
+  _tbhFbRef.on("value", snap => {
+    if (_tbhIgnoreNext) { _tbhIgnoreNext = false; return; }
+    if (!snap.exists()) return;
+    trackBHistory = snap.val() || {};
+    tbhSaveLocal();
+    // UI 갱신은 호출자 책임 (renderUnpaidByCustomer 등)
+    if (currentTab === 4 && upViewMode === "customer") {
+      renderUnpaidByCustomer();
+    }
+  });
+}
+
+// ─── 통합 저장 (localStorage + Firebase) ───
+async function tbhSave(){
+  tbhSaveLocal();
+  await tbhFbSave();
+}
+
+// ─── 조회 헬퍼 ───
+function getCustomerStage(customerName){
+  return (trackBHistory[customerName] || {}).lastStage || null;
+}
+
+function getCustomerHistory(customerName){
+  return (trackBHistory[customerName] || {}).history || [];
+}
+
+function getLastSent(customerName, stage){
+  const hist = getCustomerHistory(customerName);
+  // 동일 차수의 가장 최근 발송 기록
+  const filtered = hist.filter(h => String(h.stage) === String(stage));
+  return filtered.length > 0 ? filtered[filtered.length - 1] : null;
+}
+
+// ─── 다음 차수 자동 산출 ───
+//   1차 미발송 → "1"
+//   1차 발송됨, 2차 미발송 → "2"
+//   2차 발송됨, 2.5차 미발송 → "2.5"
+//   2.5차 발송됨, 3차 미발송 → "3"
+//   3차 발송됨 → null (모두 발송됨)
+function getNextStage(customerName){
+  const last = getCustomerStage(customerName);
+  if (!last) return "1";
+  if (last === "1") return "2";
+  if (last === "2") return "2.5";
+  if (last === "2.5") return "3";
+  if (last === "3") return null;  // 모두 발송됨
+  return "1";  // 알 수 없는 값이면 처음부터
+}
+
+// ─── 이력 추가 (발송 성공 시 호출) ───
+async function addDunningHistory(customerName, stage, monthLabel, amount, toEmail, channel){
+  if (!customerName || !stage) return false;
+  
+  if (!trackBHistory[customerName]) {
+    trackBHistory[customerName] = { lastStage: null, history: [] };
+  }
+  
+  const entry = {
+    stage: String(stage),
+    sentAt: new Date().toISOString(),
+    monthLabel: monthLabel || null,
+    totalAmount: Number(amount) || 0,
+    toEmail: toEmail || "",
+    channel: channel || "n8n"
+  };
+  
+  trackBHistory[customerName].history.push(entry);
+  trackBHistory[customerName].lastStage = String(stage);
+  
+  await tbhSave();
+  return true;
+}
+
+// ─── 이력 삭제 (실수 발송 시 수동 복구용) ───
+async function removeDunningHistory(customerName, stageOrIndex){
+  if (!trackBHistory[customerName]) return false;
+  const g = trackBHistory[customerName];
+  
+  if (typeof stageOrIndex === "number") {
+    // 인덱스 기반 삭제
+    g.history.splice(stageOrIndex, 1);
+  } else {
+    // 차수 기반 삭제 (마지막 매칭 항목)
+    for (let i = g.history.length - 1; i >= 0; i--) {
+      if (String(g.history[i].stage) === String(stageOrIndex)) {
+        g.history.splice(i, 1);
+        break;
+      }
+    }
+  }
+  
+  // lastStage 재계산
+  g.lastStage = g.history.length > 0 ? g.history[g.history.length - 1].stage : null;
+  
+  // 빈 업체는 제거
+  if (g.history.length === 0) {
+    delete trackBHistory[customerName];
+  }
+  
+  await tbhSave();
+  return true;
+}
+
+// ─── Firebase 연결 시 이력 시스템 활성화 ───
+function tbhFbConnect(){
+  if (!_fbDb) return;  // Firebase DB 없으면 건너뜀
+  _tbhFbRef = _fbDb.ref("netform_app/trackBHistory");
+  // localStorage 데이터가 있으면 그게 시작점, Firebase에서 더 새로운 게 오면 덮어씀
 }
 
 // ── Firebase 동기화 ──
@@ -6992,6 +7192,7 @@ loadGuidePdfStore();
 loadHiworksDomain();
 loadN8nWebhook();
 loadCompanyMaster();
+tbhLoadLocal();  // [트랙 B / STEP 4-A] 발송 이력 localStorage 로드
 document.getElementById("today-date").textContent=new Date().toLocaleDateString("ko-KR");
 
 // ── 한글 IME 디폴트 자동 적용 ──
