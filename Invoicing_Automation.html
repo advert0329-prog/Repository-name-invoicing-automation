@@ -7233,17 +7233,27 @@ document.getElementById("today-date").textContent=new Date().toLocaleDateString(
   observer.observe(document.body, { childList:true, subtree:true });
 })();
 
-// Firebase 자동 연결 (이전 기기에서 설정한 경우 복원)
+// Firebase 자동 연결
+// localStorage에 config 있으면 사용, 없으면 기본 config (시크릿 창/새 PC 대응)
+// ※ 보안: Firebase 데이터는 'auth != null' 규칙으로 보호되므로 config 노출 안전
+const DEFAULT_FB_CONFIG = {
+  apiKey: "AIzaSyDS5YHuZFaUchMdDtgdKe4MIhV1WnFRSfA",
+  databaseURL: "https://invoicing-automation-fe29a-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "invoicing-automation-fe29a",
+  appId: "1:722967570299:web:4b99e234601c26f62d3fde",
+  authDomain: "invoicing-automation-fe29a.firebaseapp.com"
+};
+
 (async()=>{
-  const cfg = fbLoadConfig();
-  if(cfg){
-    // [인증] Firebase Auth 초기화 - 인증 상태 감지하여 모달 표시
-    authInit(cfg);
-    await fbConnect(cfg);
-  } else {
-    // Firebase config 없으면 인증도 못 함 - 일단 그대로 진행
-    console.warn("Firebase config 없음 - 인증 시스템 비활성. 설정 탭에서 Firebase 등록 후 새로고침하세요.");
+  let cfg = fbLoadConfig();
+  if (!cfg) {
+    // 첫 방문/시크릿 창 — 기본 config 사용 + localStorage에도 저장
+    cfg = DEFAULT_FB_CONFIG;
+    fbSaveConfig(cfg);
   }
+  // [인증] Firebase Auth 초기화 - 인증 상태 감지하여 모달 표시
+  authInit(cfg);
+  await fbConnect(cfg);
 })();
 
 // 데이터 없을 때 데모 데이터 자동 주입 (테스트용)
