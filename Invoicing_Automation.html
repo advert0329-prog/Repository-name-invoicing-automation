@@ -1487,7 +1487,10 @@ function getOrderRemainAmount(o){
   return Math.max(0, (Number(o.amount)||0) - getOrderPaidAmount(o));
 }
 function isOrderFullyPaid(o){
-  return (Number(o.amount)||0) > 0 && getOrderRemainAmount(o) <= 0;
+  const amt = Number(o.amount)||0;
+  // 음수 계산서(환불·공제): 입금일(처리일)만 입력되면 완료로 간주
+  if(amt < 0) return !!o.depositDate;
+  return amt > 0 && getOrderRemainAmount(o) <= 0;
 }
 function isOrderPartiallyPaid(o){
   // 부분입금 상태: 입금 이력 있음 AND 아직 완납 안 됨
@@ -1854,8 +1857,23 @@ function renderOrders(){
       pgHtml += pgBtn(ordPage+1,'▶', ordPage===totalPages, false);
     }
 
+    // ── 필터별 건수 카운터 (현재 표시 중인 data 기준)
+    let listCount = 0;
+    const labelMap = {all:"총", noinv:"미발행", nodep:"미입금", late:"30일+ 미입금", done:"완료"};
+    data.forEach(p => {
+      (p.orders||[]).filter(o => Number(o.amount) > 0).forEach(o => {
+        if(ordFilter==="all") listCount++;
+        else if(ordFilter==="noinv" && !o.invoiceDate) listCount++;
+        else if(ordFilter==="nodep" && o.invoiceDate && !o.depositDate) listCount++;
+        else if(ordFilter==="late"  && o.invoiceDate && !o.depositDate && ordDfToday(o.invoiceDate)>=30) listCount++;
+        else if(ordFilter==="done"  && o.invoiceDate && o.depositDate) listCount++;
+      });
+    });
+    // 특허료 필터는 건수 의미 없음 → 현장 수만 표시
+    const countTxt = ordFilter==="patent" ? "" : ` · ${labelMap[ordFilter]||"총"} ${listCount}건`;
+
     html+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-      <span style="font-size:11px;color:var(--gray-400)">${totalCount}개 현장 · 총 ${data.reduce((s,p)=>s+p.orders.length,0)}건 &nbsp;·&nbsp; <span style="color:var(--indigo);font-weight:600">${ordPage}/${totalPages} 페이지</span></span>
+      <span style="font-size:11px;color:var(--gray-400)">${totalCount}개 현장${countTxt} &nbsp;·&nbsp; <span style="color:var(--indigo);font-weight:600">${ordPage}/${totalPages} 페이지</span></span>
       <span style="font-size:10px;color:var(--gray-400)">🗓 준공일 빠른 순 정렬</span>
     </div>
     <div style="overflow-x:auto;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.07)">
@@ -2146,6 +2164,24 @@ function ordSavePop(){
   const date = document.getElementById("ord-pop-date").value || "";
 
   if(ordPopField === "depositDate"){
+    // ── 음수 계산서(환불·공제) 분기: 입금일만 입력하면 처리완료로 마킹 ──
+    if((Number(o.amount)||0) < 0){
+      if(!date){ alert("처리일자를 입력해주세요."); return; }
+      o.depositDate = date;
+      // 입금 이력에도 기록 (-금액 그대로) — 추후 정산/검색용
+      if(!Array.isArray(o.deposits)) o.deposits = [];
+      o.deposits.push({
+        id: Date.now()+Math.random(),
+        date: date,
+        amount: Number(o.amount)||0,
+        note: "환불·공제 처리"
+      });
+      saveData();
+      if(window._showSaved) window._showSaved(`✅ ${p.aptName||p.customerName} 환불·공제 처리완료 (${date})`);
+      ordClosePop();
+      renderPage(currentTab);
+      return;
+    }
     // 부분/전액 입금 추가
     const amt = Number(document.getElementById("ord-pop-amt").value) || 0;
     if(!date){ alert("입금일을 입력해주세요."); return; }
