@@ -5184,6 +5184,10 @@ async function ordDownloadBillXlsx(pid, docNumber, issuedDate){
     const remain = patentBase - totalAmt;
     const finalFee = Math.round(remain>0?remain/2:0);
     const aptName = p.aptName||p.customerName||"";
+    // 양식 numFmt 180/182가 "아파트 낙찰가액", "아파트 특허료 지급 요청의 건"을 자동 부착하므로
+    // aptName이 "아파트"로 끝나면 끝의 "아파트"를 제거해서 입력 (중복 방지).
+    // aptName이 "아파트"로 안 끝나면 그대로 사용. 표 데이터(A22)에는 원본 aptName을 별도로 입력.
+    const aptForCell = aptName.replace(/아파트$/, '').trim();
     const workName = p.constructionName||"";
 
     const b64 = tmpl.base64.includes(",")?tmpl.base64.split(",")[1]:tmpl.base64;
@@ -5227,7 +5231,7 @@ async function ordDownloadBillXlsx(pid, docNumber, issuedDate){
       if(siIdx === 30 && docYear) return `<si><t>${escXml(`제 ${docYear}-`)}</t></si>`;
       // 동적 매핑 (셀 주소 → 인덱스 → 데이터 교체)
       if(idxCustomer >= 0 && siIdx === idxCustomer) return `<si><t>${escXml(p.customerName||"")}</t></si>`;
-      if(idxAptName  >= 0 && siIdx === idxAptName)  return `<si><t xml:space="preserve">${escXml(aptName)}</t></si>`;
+      if(idxAptName  >= 0 && siIdx === idxAptName)  return `<si><t xml:space="preserve">${escXml(aptForCell)}</t></si>`;
       if(idxWorkName >= 0 && siIdx === idxWorkName) return `<si><t>${escXml(workName)}</t></si>`;
       return match;
     });
@@ -5258,8 +5262,19 @@ async function ordDownloadBillXlsx(pid, docNumber, issuedDate){
     updNum("H29", finalFee);
     updNum("H34", excelSerial);
     updNum("D34", excelSerial);
-    updStrCache("D10", aptName);
-    updStrCache("A22", aptName);
+    // D10 (본문 아파트명): 수식 =C5 제거 + aptForCell 직접 입력
+    //   양식 numFmt 180이 "아파트 낙찰가액"을 자동 부착하므로 끝 "아파트" 빠진 값으로 입력
+    //   결과: "광양금광1차아파트" → "광양금광1차" 입력 → numFmt가 부착 → "광양금광1차 아파트 낙찰가액"
+    xml = xml.replace(
+      /<c\s+r="D10"[^>]*?>[\s\S]*?<\/c>/,
+      `<c r="D10" s="32" t="str"><v>${escXml(aptForCell)}</v></c>`
+    );
+    // A22 (표 아파트명 데이터): 수식 =C5 제거 + 원본 aptName 직접 입력
+    //   표에는 풀네임("광양금광1차아파트")이 그대로 표시되어야 함
+    xml = xml.replace(
+      /<c\s+r="A22"[^>]*?>[\s\S]*?<\/c>/,
+      `<c r="A22" s="75" t="str"><v>${escXml(aptName)}</v></c>`
+    );
     // 공문번호 처리:
     //   C34 = "제 YYYY-"  (sharedStrings에서 이미 연도 반영 완료)
     //   D34 = 시행일자 시리얼  (위 updNum("D34", excelSerial)에서 mmdd 서식으로 월일 표시)
@@ -5270,6 +5285,40 @@ async function ordDownloadBillXlsx(pid, docNumber, issuedDate){
     }
 
     zip.file("xl/worksheets/sheet1.xml", xml);
+
+    // ── styles.xml: 공사명 셀 스타일(cellXfs[76])에 wrapText="1" 추가 ──
+    //   G22(공사명 데이터)의 스타일 인덱스가 76이며, 이 스타일은 22행의 표 데이터 셀들만 사용.
+    //   wrapText 활성으로 긴 공사명이 셀 안에서 자동 줄바꿈됨.
+    try {
+      let stylesXml = await zip.file("xl/styles.xml").async("string");
+      const cellXfsM = stylesXml.match(/(<cellXfs[^>]*>)([\s\S]*?)(<\/cellXfs>)/);
+      if (cellXfsM) {
+        const xfsArr = cellXfsM[2].match(/<xf[^>]*?(?:\/>|>[\s\S]*?<\/xf>)/g) || [];
+        if (xfsArr.length > 76) {
+          let xf76 = xfsArr[76];
+          if (!xf76.includes('wrapText="1"')) {
+            // alignment 태그가 있으면 wrapText="1" 속성을 그 안에 추가
+            if (xf76.includes('<alignment')) {
+              xf76 = xf76.replace(/<alignment([^/]*?)\/>/, '<alignment$1 wrapText="1"/>');
+            } else if (xf76.endsWith('/>')) {
+              // self-closing xf → 자식 태그 추가
+              xf76 = xf76.slice(0, -2) + '><alignment wrapText="1"/></xf>';
+            } else {
+              // </xf> 앞에 alignment 자식 추가
+              xf76 = xf76.replace(/<\/xf>/, '<alignment wrapText="1"/></xf>');
+            }
+            // applyAlignment="1" 보장
+            if (!xf76.includes('applyAlignment="1"')) {
+              xf76 = xf76.replace(/<xf\s/, '<xf applyAlignment="1" ');
+            }
+            xfsArr[76] = xf76;
+            const newCellXfs = cellXfsM[1] + xfsArr.join('') + cellXfsM[3];
+            stylesXml = stylesXml.replace(cellXfsM[0], newCellXfs);
+            zip.file("xl/styles.xml", stylesXml);
+          }
+        }
+      }
+    } catch(e) { console.warn("styles.xml wrapText 적용 실패 (무시):", e.message); }
 
     const blob = await zip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:6}});
     const url = URL.createObjectURL(blob);
