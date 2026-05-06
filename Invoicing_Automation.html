@@ -1629,10 +1629,20 @@ function ordGetFiltered(){
     ? base.filter(p=>(p.aptName||"").includes(ordSearch)||(p.customerName||"").includes(ordSearch))
     : base;
   data = data.filter(p => (p.orders && p.orders.length > 0) || p.id === ordInlineAddPid);
+
+  // "계산서 미발행" 필터는 누락 방지 목적 — 공사형태/상태 무관 모든 자재주문 발생 건 포함
+  if(ordFilter==="noinv") {
+    return data.filter(p=>{
+      if(p.id===ordInlineAddPid) return true;
+      const c = ordCalc(p);
+      return c.noInv && p.orders.some(o=>Number(o.amount)>0);
+    });
+  }
+
+  // 다른 필터는 자재 월별 흐름 전제 — lump/유찰/취소 제외
   data = data.filter(p => p.id === ordInlineAddPid || getMaterialMode(p) !== "lump");
   data = data.filter(p => p.id === ordInlineAddPid || (p.status !== "유찰" && p.status !== "취소"));
   if(ordFilter==="patent") data=data.filter(p=>p.id===ordInlineAddPid||ordCalc(p).hasPatent);
-  else if(ordFilter==="noinv") data=data.filter(p=>{if(p.id===ordInlineAddPid)return true;const c=ordCalc(p);return c.noInv&&p.orders.some(o=>Number(o.amount)>0);});
   else if(ordFilter==="nodep") data=data.filter(p=>p.id===ordInlineAddPid||ordCalc(p).noDep);
   else if(ordFilter==="late")  data=data.filter(p=>p.id===ordInlineAddPid||ordCalc(p).late);
   else if(ordFilter==="done")  data=data.filter(p=>p.id===ordInlineAddPid||ordCalc(p).allDone);
@@ -1881,28 +1891,41 @@ function renderOrders(){
   const _qv = document.getElementById('ord-quick-input');
   if(_qv) ordQuickVal = _qv.value;
   const all = projects.filter(p => ordShowCompleted || p.status !== "완료");
-  const calcs = all.map(p=>({p,c:ordCalc(p)}));
+  // 필터별 통계용 풀 — ordGetFiltered와 동일 조건 (lump 제외 + 유찰/취소 제외)
+  // → 카운트와 리스트가 일치하도록 보장
+  const allForStats = all
+    .filter(p => getMaterialMode(p) !== "lump")
+    .filter(p => p.status !== "유찰" && p.status !== "취소");
+  const calcs = allForStats.map(p=>({p,c:ordCalc(p)}));
   const completedCnt = projects.filter(p=>p.status==="완료").length;
 
   // 통계 — 현장 수
-  const snAll    = all.filter(p=>p.orders&&p.orders.length>0).length;
+  const snAll    = all.filter(p=>p.orders&&p.orders.length>0).length;  // 전체현장은 lump 포함 (의미 있음)
   const snPatent = calcs.filter(x=>x.c.hasPatent).length;
-  const snNoinv  = calcs.filter(x=>x.c.noInv&&x.p.orders.some(o=>Number(o.amount)>0)).length;
+  // 계산서 미발행: 누락 방지 목적 — 모든 자재주문 발생 건 포함 (lump/유찰/취소도)
+  const snNoinv  = all.filter(p=>{const c=ordCalc(p);return c.noInv&&p.orders.some(o=>Number(o.amount)>0);}).length;
   const snNodep  = calcs.filter(x=>x.c.noDep).length;
   const snLate   = calcs.filter(x=>x.c.late).length;
   const snDone   = calcs.filter(x=>x.c.allDone).length;
 
   // 통계 — 주문 건수 (현장 수와 병기)
   let cntAllOrders = 0, cntNoinv = 0, cntNodep = 0, cntLate = 0, cntDone = 0;
+  // 전체 주문 건수 + 계산서 미발행 건수: all 기반 (누락 방지 목적)
   all.forEach(p => {
     const validOrds = (p.orders||[]).filter(o=>Number(o.amount)>0);
     cntAllOrders += validOrds.length;
-    validOrds.forEach(o=>{
+    validOrds.forEach(o => {
       if(!o.invoiceDate) cntNoinv++;
-      else if(!o.depositDate){
+    });
+  });
+  // 입금 대기/30일+/완료 건수: allForStats 기반 (자재 월별 흐름 전제)
+  allForStats.forEach(p => {
+    const validOrds = (p.orders||[]).filter(o=>Number(o.amount)>0);
+    validOrds.forEach(o=>{
+      if(o.invoiceDate && !o.depositDate){
         cntNodep++;
         if(ordDfToday(o.invoiceDate) >= 30) cntLate++;
-      } else {
+      } else if(o.invoiceDate && o.depositDate) {
         cntDone++;
       }
     });
