@@ -5194,29 +5194,41 @@ async function ordDownloadBillXlsx(pid, docNumber, issuedDate){
 
     function escXml(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 
-    // ── sharedStrings.xml: 인덱스 34(수신), 35(아파트명), 36(공사명) 교체 + 30(공문번호 연도) 교체 ──
-    // 공문번호 "제 2026-0417-03 호"는 템플릿의 4개 셀로 분리 저장됨:
-    //   C34 = "제 2026-"  (sharedStrings 인덱스 30, 연도만 갱신)
-    //   D34 = =H34        (월일, 수식으로 자동 표시 → 0417)
-    //   E34 = 순번 숫자   (셀 서식 "-0000 호"가 자동 적용 → -0003 호)
-    //   F34 = 빈 셀 (병합 일부)
+    // ── sharedStrings.xml: 셀 주소 기반으로 동적 인덱스 탐색 후 교체 ──
+    //   C3  = 수신처 (customerName)
+    //   C5  = 아파트명 (aptName)  ← D10, A22 본문/표가 이 셀을 수식 참조
+    //   G22 = 공사명 (constructionName)
+    //   H25 = "특허료(VAT.별도)" 헤더 라벨 (변경 안 함)
+    //   A29 = "특허료 실 청구액..." 라벨 (변경 안 함)
+    //   인덱스 30(C34) = 공문번호 연도 ("제 YYYY-")
     let docYear = "", docSeqNum = 0;
     if(docNumber){
-      // docNumber 파싱: "제 2026-0417-03 호" → 연도, 순번 추출
       const mY = docNumber.match(/제\s*(\d{4})-/);
       const mS = docNumber.match(/-(\d+)\s*호/);
       docYear = mY ? mY[1] : String(new Date().getFullYear());
       docSeqNum = mS ? parseInt(mS[1], 10) : 0;
     }
 
+    // 양식의 셀 주소에서 sharedStrings 인덱스를 동적으로 찾기
+    const sheetXmlForLookup = await zip.file("xl/worksheets/sheet1.xml").async("string");
+    function findSsIdx(addr){
+      const m = sheetXmlForLookup.match(new RegExp(`<c\\s+r="${addr}"[^>]*?t="s"[^>]*?><v[^>]*>(\\d+)</v></c>`));
+      return m ? parseInt(m[1]) : -1;
+    }
+    const idxCustomer = findSsIdx("C3");   // 수신처
+    const idxAptName  = findSsIdx("C5");   // 아파트명 (본문/표가 이 셀 참조)
+    const idxWorkName = findSsIdx("G22");  // 공사명
+
     let ssXml = await zip.file("xl/sharedStrings.xml").async("string");
     let siIdx = -1;
     ssXml = ssXml.replace(/<si>[\s\S]*?<\/si>/g, match=>{
       siIdx++;
-      if(siIdx===30 && docYear) return `<si><t>${escXml(`제 ${docYear}-`)}</t></si>`;  // C34: 공문번호 연도
-      if(siIdx===34) return `<si><t>${escXml(p.customerName||"")}</t></si>`;
-      if(siIdx===35) return `<si><t xml:space="preserve">${escXml(aptName)} </t></si>`;
-      if(siIdx===36) return `<si><t>${escXml(workName)}</t></si>`;
+      // 공문번호 연도 (인덱스 30 고정 — C34 셀의 인덱스)
+      if(siIdx === 30 && docYear) return `<si><t>${escXml(`제 ${docYear}-`)}</t></si>`;
+      // 동적 매핑 (셀 주소 → 인덱스 → 데이터 교체)
+      if(idxCustomer >= 0 && siIdx === idxCustomer) return `<si><t>${escXml(p.customerName||"")}</t></si>`;
+      if(idxAptName  >= 0 && siIdx === idxAptName)  return `<si><t xml:space="preserve">${escXml(aptName)}</t></si>`;
+      if(idxWorkName >= 0 && siIdx === idxWorkName) return `<si><t>${escXml(workName)}</t></si>`;
       return match;
     });
     zip.file("xl/sharedStrings.xml", ssXml);
