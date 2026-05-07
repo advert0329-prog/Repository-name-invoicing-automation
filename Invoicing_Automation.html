@@ -540,7 +540,7 @@ input[type="url"], input[type="password"]{
 <!-- 모달: 이메일 (첨부파일 포함) -->
 <div class="modal-overlay" id="modal-email">
   <div class="modal">
-    <div class="modal-header"><h3>✉️ 이메일 발송</h3><button class="modal-close" onclick="closeModal('modal-email');renderPage(currentTab)">✕</button></div>
+    <div class="modal-header"><h3>✉️ 이메일 발송</h3><button class="modal-close" onclick="clearDunningContext();closeModal('modal-email');renderPage(currentTab)">✕</button></div>
     <div class="modal-body" id="email-body"></div>
   </div>
 </div>
@@ -3388,20 +3388,20 @@ function openTrackPreview(customerName, stage, track){
     <!-- 액션 영역 -->
     <div style="padding:14px 20px 18px;display:flex;justify-content:space-between;align-items:center;gap:10px">
       <div style="font-size:10px;color:#6b7280;flex:1;line-height:1.5">
-        ✅ <b>발송 흐름</b>: "발송 진행" 클릭 → 메일 발송 모달 열림 → n8n 자동발송 또는 Gmail/메일앱 선택 가능<br/>
-        <span style="color:#9ca3af">발송 이력 자동 기록은 추후 단계에서 추가됩니다.</span>
+        ✅ <b>발송 흐름</b>: "발송 진행" 클릭 → 메일 발송 모달 열림 → n8n 자동발송 시 발송 이력 자동 기록<br/>
+        <span style="color:#9ca3af">트랙 ${track}${track==='C'?' 특허료':''} · ${customerName} · ${stage}차 · ${fmtNum(g.totalUnpaid||0)}</span>
       </div>
       <button onclick="closeModal('modal-trackb-preview')" style="padding:9px 18px;background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">취소</button>
-      <button onclick="proceedTrackBSend('${esc(mail.to)}', '${esc(mail.subject).replace(/'/g,"\\'")}')" style="padding:9px 22px;background:${meta.color};color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;box-shadow:0 1px 2px rgba(0,0,0,.1)">📤 발송 진행</button>
+      <button onclick="proceedTrackSend('${esc(mail.to)}', '${esc(mail.subject).replace(/'/g,"\\'")}', '${track}', '${esc(customerName).replace(/'/g,"\\'")}', '${stage}', ${g.monthLabel||"null"}, ${g.totalUnpaid||0})" style="padding:9px 22px;background:${meta.color};color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;box-shadow:0 1px 2px rgba(0,0,0,.1)">📤 발송 진행</button>
     </div>
   `;
   document.getElementById("tb-preview-body").innerHTML = body;
   openModal("modal-trackb-preview");
 }
 
-// ─── [트랙 B] 발송 진행: 편집된 본문을 기존 메일 모달로 넘김 ───
-// 사용자는 그 모달에서 n8n 자동발송 / Gmail / 메일앱 중 선택
-function proceedTrackBSend(to, subject){
+// ─── [STEP 4-B] 발송 진행: 편집된 본문을 기존 메일 모달로 넘김 (트랙 B/C 통합) ───
+// 사용자는 그 모달에서 n8n 자동발송 → 응답 200이면 발송 이력 자동 기록
+function proceedTrackSend(to, subject, track, customerName, stage, monthLabel, totalAmount){
   // 트랙B 모달의 textarea에서 (편집됐을 수 있는) 최신 본문 가져오기
   const textareaEl = document.getElementById("tb-preview-body-text");
   const finalBody = textareaEl ? textareaEl.value : "";
@@ -3416,12 +3416,26 @@ function proceedTrackBSend(to, subject){
   }
 
   // selBillId 비워두기 - 그룹 발송이라 특정 청구서 1건에 매핑되지 않음
-  // (기존 sendEmail()이 selBillId 있을 때만 emailSentDate 기록하므로 자동으로 안전)
   selBillId = null;
+
+  // [STEP 4-B] 발송 이력 컨텍스트 설정 — sendEmail()이 n8n 200 응답 시 사용
+  setDunningContext({
+    customerName: customerName || "",
+    stage: stage || "",
+    monthLabel: monthLabel || null,
+    amount: Number(totalAmount) || 0,
+    track: track || "B"
+  });
 
   // 트랙B 모달 닫고 → 기존 메일 모달 열기
   closeModal("modal-trackb-preview");
   openEmailModal(to, subject, finalBody);
+}
+
+// ─── 하위 호환: 기존 proceedTrackBSend 호출도 그대로 동작하도록 유지 ───
+function proceedTrackBSend(to, subject){
+  // 트랙·차수 정보 없이 호출되는 경우 (legacy) — 이력 기록 안 됨
+  proceedTrackSend(to, subject, "B", "", "", null, 0);
 }
 
 function renderUnpaidByCustomer(){
@@ -6494,6 +6508,24 @@ async function sendEmail(){
         });
         if(!res.ok) throw new Error("HTTP "+res.status);
         if(selBillId){const b=allBills.find(x=>x.id===selBillId);if(b)b.emailSentDate=todayStr();saveData();}
+
+        // [STEP 4-B] 트랙 B/C 발송 이력 자동 기록 (n8n 응답 200일 때만)
+        let dunningRecorded = false;
+        const ctx = getDunningContext();
+        if (ctx && ctx.customerName && ctx.stage) {
+          try {
+            await addDunningHistoryByTrack(
+              ctx.customerName, ctx.stage, ctx.monthLabel,
+              ctx.amount, to, "n8n", ctx.track
+            );
+            dunningRecorded = true;
+            console.log("[STEP 4-B] 발송 이력 기록 완료:", ctx);
+          } catch(e) {
+            console.warn("[STEP 4-B] 이력 기록 실패:", e);
+          }
+          clearDunningContext();
+        }
+
         document.getElementById("email-body").innerHTML=`
           <div class="email-success">
             <div class="icon">✅</div>
@@ -6501,10 +6533,13 @@ async function sendEmail(){
             <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 14px;font-size:12px;text-align:left;margin-bottom:16px;line-height:1.7">
               <div><span style="color:#9ca3af">받는 사람</span> &nbsp;<b>${escHtml(to)}</b></div>
               <div><span style="color:#9ca3af">제&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;목</span> &nbsp;<b>${escHtml(subject)}</b></div>
+              ${dunningRecorded ? `<div style="margin-top:6px;padding-top:6px;border-top:1px dashed #bbf7d0;color:#065f46"><span style="color:#9ca3af">발송 이력</span> &nbsp;<b>트랙 ${ctx.track} · ${escHtml(ctx.customerName)} · ${ctx.stage}차 자동 기록됨</b></div>` : ""}
             </div>
             <button class="btn btn-primary" onclick="closeModal('modal-email');renderPage(currentTab)">확인</button>
           </div>`;
       }catch(err){
+        // 발송 실패 시 컨텍스트 클리어 (재시도 시 새 컨텍스트로)
+        clearDunningContext();
         document.getElementById("email-body").innerHTML=`
           <div class="email-success">
             <div class="icon">❌</div>
@@ -6535,10 +6570,14 @@ async function sendEmail(){
   } else if(client==="gmail"){
     window.open(`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(to)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`,"_blank");
     if(selBillId){const b=allBills.find(x=>x.id===selBillId);if(b)b.emailSentDate=todayStr();}
+    // [STEP 4-B] Gmail은 발송 확인 불가 → 이력 기록 안 함, 컨텍스트 클리어
+    clearDunningContext();
     document.getElementById("email-body").innerHTML=`<div class="email-success"><div class="icon">✅</div><p style="font-weight:700;margin-bottom:6px">Gmail이 열렸습니다</p><p style="font-size:13px;color:#6b7280;margin-bottom:16px">내용 확인 후 보내기를 눌러 발송을 완료해 주세요.</p><button class="btn btn-primary" onclick="closeModal('modal-email');renderPage(currentTab)">확인</button></div>`;
   } else {
     window.open(`mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`);
     if(selBillId){const b=allBills.find(x=>x.id===selBillId);if(b)b.emailSentDate=todayStr();}
+    // [STEP 4-B] mailto는 발송 확인 불가 → 이력 기록 안 함, 컨텍스트 클리어
+    clearDunningContext();
     document.getElementById("email-body").innerHTML=`<div class="email-success"><div class="icon">✅</div><p style="font-weight:700;margin-bottom:6px">메일앱이 열렸습니다</p><p style="font-size:13px;color:#6b7280;margin-bottom:16px">내용 확인 후 보내기를 눌러 발송을 완료해 주세요.</p><button class="btn btn-primary" onclick="closeModal('modal-email');renderPage(currentTab)">확인</button></div>`;
   }
 }
@@ -7282,6 +7321,8 @@ function authInit(cfg){
           fbListen(); 
           tbhFbConnect();              // [트랙 B / STEP 4-A] 이력 Firebase 연결
           tbhFbLoad().then(() => tbhFbListen());  // 이력 로드 + 리스너
+          tchFbConnect();              // [트랙 C / STEP 4-B] 특허료 이력 Firebase 연결
+          tchFbLoad().then(() => tchFbListen());  // 트랙 C 이력 로드 + 리스너
           renderPage(currentTab); 
         }));
       } else {
@@ -7290,6 +7331,8 @@ function authInit(cfg){
           fbListen(); 
           if (!_tbhFbRef) tbhFbConnect();
           tbhFbLoad().then(() => tbhFbListen());
+          if (!_tchFbRef) tchFbConnect();
+          tchFbLoad().then(() => tchFbListen());
           renderPage(currentTab); 
         });
       }
@@ -7568,6 +7611,209 @@ function tbhFbConnect(){
   // localStorage 데이터가 있으면 그게 시작점, Firebase에서 더 새로운 게 오면 덮어씀
 }
 
+// ════════════════════════════════════════════
+// [트랙 C / STEP 4-B] 특허료 발송 이력 시스템
+// 트랙 B와 동일 구조, 별도 저장소
+// ════════════════════════════════════════════
+const TCH_KEY = "trackc_history_v1";   // localStorage 키
+let trackCHistory = {};                // 메모리 캐시
+let _tchFbRef = null;
+let _tchListening = false;
+let _tchIgnoreNext = false;
+
+function tchLoadLocal(){
+  try {
+    const raw = localStorage.getItem(TCH_KEY);
+    trackCHistory = raw ? (JSON.parse(raw) || {}) : {};
+  } catch(e) {
+    console.warn("trackCHistory localStorage 로드 실패:", e);
+    trackCHistory = {};
+  }
+  return trackCHistory;
+}
+
+function tchSaveLocal(){
+  try {
+    localStorage.setItem(TCH_KEY, JSON.stringify(trackCHistory));
+  } catch(e) {
+    console.warn("trackCHistory localStorage 저장 실패:", e);
+  }
+}
+
+async function tchFbSave(){
+  if (!_tchFbRef) return;
+  try {
+    _tchIgnoreNext = true;
+    await _tchFbRef.set(trackCHistory);
+  } catch(e) {
+    console.warn("trackCHistory Firebase 저장 실패:", e.message);
+  }
+}
+
+async function tchFbLoad(){
+  if (!_tchFbRef) return false;
+  try {
+    const snap = await _tchFbRef.get();
+    if (snap.exists()) {
+      trackCHistory = snap.val() || {};
+      tchSaveLocal();
+      return true;
+    }
+    return false;
+  } catch(e) {
+    console.warn("trackCHistory Firebase 로드 실패:", e.message);
+    return false;
+  }
+}
+
+function tchFbListen(){
+  if (!_tchFbRef || _tchListening) return;
+  _tchListening = true;
+  _tchFbRef.on("value", snap => {
+    if (_tchIgnoreNext) { _tchIgnoreNext = false; return; }
+    if (!snap.exists()) return;
+    trackCHistory = snap.val() || {};
+    tchSaveLocal();
+    if (currentTab === 4 && upViewMode === "customer") {
+      renderUnpaidByCustomer();
+    }
+  });
+}
+
+async function tchSave(){
+  tchSaveLocal();
+  await tchFbSave();
+}
+
+function tchFbConnect(){
+  if (!_fbDb) return;
+  _tchFbRef = _fbDb.ref("netform_app/trackCHistory");
+}
+
+// ════════════════════════════════════════════
+// [STEP 4-B] 트랙 통합 이력 헬퍼
+// 트랙 B / C 분기 처리
+// ════════════════════════════════════════════
+
+// 트랙별 저장소 선택
+function getHistoryStore(track){
+  return (track === "C") ? trackCHistory : trackBHistory;
+}
+
+// 트랙별 통합 저장
+async function saveTrackHistory(track){
+  if (track === "C") {
+    await tchSave();
+  } else {
+    await tbhSave();
+  }
+}
+
+// 업체 차수 조회 (트랙별)
+function getCustomerStageByTrack(customerName, track){
+  const store = getHistoryStore(track);
+  return (store[customerName] || {}).lastStage || null;
+}
+
+// 업체 발송 이력 조회 (트랙별)
+function getCustomerHistoryByTrack(customerName, track){
+  const store = getHistoryStore(track);
+  return (store[customerName] || {}).history || [];
+}
+
+// 다음 차수 자동 산출 (트랙별)
+//   트랙 B: null → "1" → "2" → "2.5" → "3" → null
+//   트랙 C: null → "1" → "2" → "2.5" → null  (3차 없음, 임계값 별도)
+function getNextStageByTrack(customerName, track){
+  const last = getCustomerStageByTrack(customerName, track);
+  if (!last) return "1";
+  if (last === "1") return "2";
+  if (last === "2") return "2.5";
+  if (last === "2.5") return (track === "C") ? null : "3";
+  if (last === "3") return null;
+  return "1";
+}
+
+// 동일 차수 마지막 발송 정보 (트랙별)
+function getLastSentByTrack(customerName, stage, track){
+  const hist = getCustomerHistoryByTrack(customerName, track);
+  const filtered = hist.filter(h => String(h.stage) === String(stage));
+  return filtered.length > 0 ? filtered[filtered.length - 1] : null;
+}
+
+// ─── 발송 이력 추가 (n8n 응답 200일 때만 호출) ───
+async function addDunningHistoryByTrack(customerName, stage, monthLabel, amount, toEmail, channel, track){
+  if (!customerName || !stage) return false;
+  if (channel !== "n8n") return false;  // n8n만 기록 (Gmail/mailto 제외)
+
+  const store = getHistoryStore(track);
+  if (!store[customerName]) {
+    store[customerName] = { lastStage: null, history: [] };
+  }
+
+  const entry = {
+    stage: String(stage),
+    sentAt: new Date().toISOString(),
+    monthLabel: monthLabel || null,
+    totalAmount: Number(amount) || 0,
+    toEmail: toEmail || "",
+    channel: "n8n",
+    track: track || "B"
+  };
+
+  store[customerName].history.push(entry);
+  store[customerName].lastStage = String(stage);
+
+  await saveTrackHistory(track);
+  return true;
+}
+
+// ─── 이력 삭제 (수동 복구용, 트랙별) ───
+async function removeDunningHistoryByTrack(customerName, stageOrIndex, track){
+  const store = getHistoryStore(track);
+  if (!store[customerName]) return false;
+  const g = store[customerName];
+
+  if (typeof stageOrIndex === "number") {
+    g.history.splice(stageOrIndex, 1);
+  } else {
+    for (let i = g.history.length - 1; i >= 0; i--) {
+      if (String(g.history[i].stage) === String(stageOrIndex)) {
+        g.history.splice(i, 1);
+        break;
+      }
+    }
+  }
+
+  g.lastStage = g.history.length > 0 ? g.history[g.history.length - 1].stage : null;
+
+  if (g.history.length === 0) {
+    delete store[customerName];
+  }
+
+  await saveTrackHistory(track);
+  return true;
+}
+
+// ════════════════════════════════════════════
+// [STEP 4-B] 발송 컨텍스트 — 메일 발송 시점에 트랙·차수 정보 잠시 보관
+// proceedTrackSend()가 설정 → sendEmail()이 n8n 200 응답 시 사용 → 클리어
+// ════════════════════════════════════════════
+let _pendingDunningContext = null;
+// 형식: { customerName, stage, monthLabel, amount, track }
+
+function setDunningContext(ctx) {
+  _pendingDunningContext = ctx;
+}
+
+function clearDunningContext() {
+  _pendingDunningContext = null;
+}
+
+function getDunningContext() {
+  return _pendingDunningContext;
+}
+
 // ── Firebase 동기화 ──
 let _fbDb = null, _fbRef = null, _fbListening = false, _fbIgnoreNext = false;
 
@@ -7766,6 +8012,7 @@ loadHiworksDomain();
 loadN8nWebhook();
 loadCompanyMaster();
 tbhLoadLocal();  // [트랙 B / STEP 4-A] 발송 이력 localStorage 로드
+tchLoadLocal();  // [트랙 C / STEP 4-B] 특허료 이력 localStorage 로드
 document.getElementById("today-date").textContent=new Date().toLocaleDateString("ko-KR");
 
 // ── 한글 IME 디폴트 자동 적용 ──
