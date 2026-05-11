@@ -3438,6 +3438,37 @@ function proceedTrackBSend(to, subject){
   proceedTrackSend(to, subject, "B", "", "", null, 0);
 }
 
+// ─── [STEP 4-D] 재발송 확인 다이얼로그 ───
+// 이번 청구월에 같은 차수가 이미 발송됐을 때 클릭 시 호출
+// 반환: true = 진행 (재발송), false = 취소
+function confirmResend(customerName, stage, track){
+  const monthKey = currentBillingMonthKey();
+  const last = getLastSentByTrack(customerName, stage, track, monthKey);
+  const trackName = (track === "C") ? "트랙 C 특허료" : "트랙 B 자재";
+
+  let detail = "";
+  if (last) {
+    const dt = last.sentAt ? new Date(last.sentAt) : null;
+    const dtStr = dt
+      ? `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`
+      : "(시각 미상)";
+    const monthLabelTxt = last.monthLabel ? `${last.monthLabel}월 발행분 ` : "";
+    detail = `\n\n📋 마지막 발송 정보\n`
+           + `   ${monthLabelTxt}${trackName} · ${stage}차\n`
+           + `   ${dtStr}\n`
+           + `   → ${last.toEmail || "(수신자 미상)"}\n`
+           + `   금액: ${(last.totalAmount||0).toLocaleString()}원`;
+  }
+
+  return confirm(
+    `⚠️ 이미 이번 청구월에 ${stage}차 발송된 업체입니다.\n\n`
+    + `업체: ${customerName}\n`
+    + `구분: ${trackName} · ${stage}차`
+    + detail
+    + `\n\n다시 발송하시겠습니까?`
+  );
+}
+
 function renderUnpaidByCustomer(){
   const groups = collectUnpaidByCustomer();
   const totalNet = groups.reduce((s,g)=>s+g.totalUnpaid, 0);
@@ -3584,6 +3615,7 @@ function renderUnpaidByCustomer(){
             const c3disabled = (track==="C") && !canSendStage3MailC(grp);
             const cnEsc = (cn||'').replace(/'/g,"\\'");
             const opener = (track==="C") ? "openTrackCPreview" : "openTrackBPreview";
+            const monthKey = currentBillingMonthKey();
             const stages = [
               { st:"1",   color:"#10b981", bg:"#ecfdf5", label:track==="C"?"1차 · 정기 리마인드":"1차 · 정중 안내" },
               { st:"2",   color:"#3b82f6", bg:"#eff6ff", label:"2차 · 재안내" },
@@ -3592,19 +3624,42 @@ function renderUnpaidByCustomer(){
             ];
             return stages.map(s => {
               const disabled = noEmail || (s.st==="3" && c3disabled);
-              const titleAttr = s.st==="3" && c3disabled
-                ? ` title="누적 ₩${Number(TRACK_C_LEGAL_THRESHOLD).toLocaleString()} 미만이라 3차 발송 불가"`
-                : "";
-              return `<button onclick="${opener}('${cnEsc}', '${s.st}')" ${disabled?'disabled':''}${titleAttr} style="padding:5px 10px;border:1px solid ${disabled?'#e5e7eb':s.color};background:${disabled?'#f9fafb':s.bg};color:${disabled?'#9ca3af':s.color};border-radius:6px;font-size:11px;font-weight:600;cursor:${disabled?'not-allowed':'pointer'};font-family:inherit">${s.label}</button>`;
+              // [STEP 4-D] 이번 청구월에 이미 같은 차수 발송했는지
+              const alreadySent = !disabled && isStageAlreadySent(cn, s.st, track, monthKey);
+
+              let titleAttr = "";
+              if (s.st==="3" && c3disabled) {
+                titleAttr = ` title="누적 ₩${Number(TRACK_C_LEGAL_THRESHOLD).toLocaleString()} 미만이라 3차 발송 불가"`;
+              } else if (alreadySent) {
+                const last = getLastSentByTrack(cn, s.st, track, monthKey);
+                const dt = last && last.sentAt ? new Date(last.sentAt) : null;
+                const dtStr = dt ? `${dt.getMonth()+1}/${dt.getDate()} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}` : "";
+                titleAttr = ` title="이번 청구월에 이미 ${s.st}차 발송됨${dtStr?' ('+dtStr+')':''} - 클릭 시 재발송 확인"`;
+              }
+
+              // [STEP 4-D] 발송 완료 차수: 시각적으로 약화 + ✓ 표시 + 클릭 시 재발송 경고
+              const onclickAttr = alreadySent
+                ? `onclick="if(confirmResend('${cnEsc}', '${s.st}', '${track}')) ${opener}('${cnEsc}', '${s.st}')"`
+                : `onclick="${opener}('${cnEsc}', '${s.st}')"`;
+
+              const styleColor = disabled ? '#9ca3af' : (alreadySent ? '#9ca3af' : s.color);
+              const styleBg = disabled ? '#f9fafb' : (alreadySent ? '#f3f4f6' : s.bg);
+              const styleBorder = disabled ? '#e5e7eb' : (alreadySent ? '#d1d5db' : s.color);
+              const cursor = disabled ? 'not-allowed' : 'pointer';
+              const opacity = alreadySent ? '0.75' : '1';
+              const checkmark = alreadySent ? '✓ ' : '';
+
+              return `<button ${onclickAttr} ${disabled?'disabled':''}${titleAttr} style="padding:5px 10px;border:1px solid ${styleBorder};background:${styleBg};color:${styleColor};border-radius:6px;font-size:11px;font-weight:600;cursor:${cursor};font-family:inherit;opacity:${opacity}">${checkmark}${s.label}</button>`;
             }).join("");
           };
 
-          // ─── [STEP 4-C] 트랙별 마지막 발송 차수 배지 ───
+          // ─── [STEP 4-C/D] 트랙별 이번 청구월의 마지막 발송 차수 배지 ───
           const renderStageBadge = (track, customerName) => {
-            const lastStage = getCustomerStageByTrack(customerName, track);
-            if (!lastStage) return ""; // 발송 이력 없음
+            const monthKey = currentBillingMonthKey();
+            const lastStage = getCustomerStageByTrack(customerName, track, monthKey);
+            if (!lastStage) return ""; // 이번 청구월 발송 없음
 
-            const lastSent = getLastSentByTrack(customerName, lastStage, track);
+            const lastSent = getLastSentByTrack(customerName, lastStage, track, monthKey);
             if (!lastSent) return "";
 
             const stageStyle = {
@@ -3618,18 +3673,26 @@ function renderUnpaidByCustomer(){
             const sentLabel = sentAt
               ? `${sentAt.getMonth()+1}/${sentAt.getDate()} ${String(sentAt.getHours()).padStart(2,'0')}:${String(sentAt.getMinutes()).padStart(2,'0')}`
               : "";
-            return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;background:${s.bg};color:${s.color};border:1px solid ${s.color};border-radius:12px;font-size:10.5px;font-weight:700;margin-left:6px">${s.icon} ${s.label} ✓${sentLabel?` <span style="font-weight:500;opacity:.8">(${sentLabel})</span>`:""}</span>`;
+            const monthLabelTxt = lastSent.monthLabel ? `${lastSent.monthLabel}월분 ` : "";
+            return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;background:${s.bg};color:${s.color};border:1px solid ${s.color};border-radius:12px;font-size:10.5px;font-weight:700;margin-left:6px" title="${monthLabelTxt}${s.label} - ${sentLabel}">${s.icon} ${monthLabelTxt}${s.label} ✓${sentLabel?` <span style="font-weight:500;opacity:.8">(${sentLabel})</span>`:""}</span>`;
           };
 
-          // ─── [STEP 4-C] 발송 이력 펼침 영역 ───
+          // ─── [STEP 4-C/D] 발송 이력 펼침 영역 (월별 그룹화) ───
           const renderHistoryDetails = (track, customerName) => {
             const history = getCustomerHistoryByTrack(customerName, track);
             if (!history || history.length === 0) return "";
 
-            // 최신순 정렬
-            const sorted = [...history].sort((a,b) => 
-              new Date(b.sentAt||0) - new Date(a.sentAt||0)
-            );
+            // 월별 그룹화
+            const byMonth = {};
+            history.forEach(h => {
+              const mk = h.monthKey || monthKeyFromLabel(h.monthLabel, h.sentAt);
+              if (!byMonth[mk]) byMonth[mk] = [];
+              byMonth[mk].push(h);
+            });
+
+            // 월 키를 최신순 (역순) 정렬
+            const monthKeys = Object.keys(byMonth).sort((a,b) => b.localeCompare(a));
+            const currentMK = currentBillingMonthKey();
 
             const stageStyle = {
               "1":   { color:"#10b981", icon:"🟢" },
@@ -3641,24 +3704,41 @@ function renderUnpaidByCustomer(){
             const cnId = (customerName||'').replace(/[^a-zA-Z0-9가-힣]/g,'_');
             const detailsId = `dunning-history-${track}-${cnId}`;
 
-            const rows = sorted.map(h => {
-              const s = stageStyle[String(h.stage)] || stageStyle["1"];
-              const dt = h.sentAt ? new Date(h.sentAt) : null;
-              const dateStr = dt
-                ? `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`
-                : "(시각 미상)";
-              return `<div style="display:grid;grid-template-columns:60px 1fr auto;gap:8px;padding:5px 0;border-top:1px dashed #e5e7eb;font-size:11px;align-items:center">
-                <span style="color:${s.color};font-weight:700">${s.icon} ${h.stage}차</span>
-                <span style="color:#6b7280">${dateStr} → ${escHtml(h.toEmail||"")}</span>
-                <span style="color:#1f2937;font-weight:600">${fmtNum(h.totalAmount||0)}</span>
+            const monthBlocks = monthKeys.map(mk => {
+              const monthEntries = [...byMonth[mk]].sort((a,b) =>
+                new Date(b.sentAt||0) - new Date(a.sentAt||0)
+              );
+              const isCurrent = (mk === currentMK);
+              const [yy, mm] = mk.split("-");
+              const monthLabel = `${yy}년 ${parseInt(mm,10)}월 발행분`;
+
+              const rows = monthEntries.map(h => {
+                const s = stageStyle[String(h.stage)] || stageStyle["1"];
+                const dt = h.sentAt ? new Date(h.sentAt) : null;
+                const dateStr = dt
+                  ? `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`
+                  : "(시각 미상)";
+                return `<div style="display:grid;grid-template-columns:60px 1fr auto;gap:8px;padding:5px 0;border-top:1px dashed #e5e7eb;font-size:11px;align-items:center">
+                  <span style="color:${s.color};font-weight:700">${s.icon} ${h.stage}차</span>
+                  <span style="color:#6b7280">${dateStr} → ${escHtml(h.toEmail||"")}</span>
+                  <span style="color:#1f2937;font-weight:600">${fmtNum(h.totalAmount||0)}</span>
+                </div>`;
+              }).join("");
+
+              return `<div style="margin-top:6px">
+                <div style="display:flex;align-items:center;gap:6px;padding:5px 0;font-size:11px;font-weight:700;color:${isCurrent?'#1d4ed8':'#6b7280'}">
+                  📅 ${monthLabel} <span style="font-weight:500;color:#9ca3af">(${monthEntries.length}건)</span>
+                  ${isCurrent?'<span style="font-size:9px;background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:8px;font-weight:700">이번 청구월</span>':''}
+                </div>
+                ${rows}
               </div>`;
             }).join("");
 
             return `<details id="${detailsId}" style="margin-top:8px;background:#fafbfc;border:1px solid #e5e7eb;border-radius:6px;padding:6px 10px">
               <summary style="cursor:pointer;font-size:10.5px;color:#6b7280;font-weight:600;outline:none;list-style:revert">
-                📋 발송 이력 ${history.length}건
+                📋 발송 이력 ${history.length}건 (${monthKeys.length}개월)
               </summary>
-              <div style="margin-top:6px">${rows}</div>
+              ${monthBlocks}
             </details>`;
           };
 
@@ -7391,6 +7471,8 @@ function authInit(cfg){
           tbhFbLoad().then(() => tbhFbListen());  // 이력 로드 + 리스너
           tchFbConnect();              // [트랙 C / STEP 4-B] 특허료 이력 Firebase 연결
           tchFbLoad().then(() => tchFbListen());  // 트랙 C 이력 로드 + 리스너
+          // [STEP 4-D] 기존 이력에 monthKey 자동 부여 (구버전 데이터 호환)
+          setTimeout(() => migrateAddMonthKey(), 2000);
           renderPage(currentTab); 
         }));
       } else {
@@ -7401,6 +7483,7 @@ function authInit(cfg){
           tbhFbLoad().then(() => tbhFbListen());
           if (!_tchFbRef) tchFbConnect();
           tchFbLoad().then(() => tchFbListen());
+          setTimeout(() => migrateAddMonthKey(), 2000);
           renderPage(currentTab); 
         });
       }
@@ -7759,9 +7842,34 @@ function tchFbConnect(){
 }
 
 // ════════════════════════════════════════════
-// [STEP 4-B] 트랙 통합 이력 헬퍼
-// 트랙 B / C 분기 처리
+// [STEP 4-B/C/D] 트랙 통합 이력 헬퍼 — 청구월 기반
+// 발송 시점의 전월을 "청구월"로 사용 (흐름도 v3.5 의 monthLabel 동일 개념)
+//   예: 5월 발송 → 4월 발행분 → monthKey = "2026-04"
 // ════════════════════════════════════════════
+
+// 현재 청구월 키 (YYYY-MM) — 발송 시점의 전월
+function currentBillingMonthKey(){
+  const now = new Date();
+  const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const y = prev.getFullYear();
+  const m = String(prev.getMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+}
+
+// monthLabel(숫자, 1~12)에서 monthKey(YYYY-MM) 산출
+// 발송이 5월이고 monthLabel=4면 "2026-04", 발송이 1월이고 monthLabel=12면 전년도 "2025-12"
+function monthKeyFromLabel(monthLabel, sentAtIso){
+  if (!monthLabel) return currentBillingMonthKey();
+  const sent = sentAtIso ? new Date(sentAtIso) : new Date();
+  let year = sent.getFullYear();
+  const sentMonth = sent.getMonth() + 1;  // 1~12
+  // 12월 발송 + monthLabel=11 같은 일반 케이스: 같은 연도
+  // 1월 발송 + monthLabel=12: 전년도
+  if (Number(monthLabel) > sentMonth) {
+    year -= 1;
+  }
+  return `${year}-${String(monthLabel).padStart(2,"0")}`;
+}
 
 // 트랙별 저장소 선택
 function getHistoryStore(track){
@@ -7777,23 +7885,33 @@ async function saveTrackHistory(track){
   }
 }
 
-// 업체 차수 조회 (트랙별)
-function getCustomerStageByTrack(customerName, track){
-  const store = getHistoryStore(track);
-  return (store[customerName] || {}).lastStage || null;
-}
-
-// 업체 발송 이력 조회 (트랙별)
+// 업체 전체 이력 (트랙별, 청구월 무관)
 function getCustomerHistoryByTrack(customerName, track){
   const store = getHistoryStore(track);
   return (store[customerName] || {}).history || [];
 }
 
-// 다음 차수 자동 산출 (트랙별)
+// 특정 청구월의 이력만 필터
+function getCustomerHistoryByMonth(customerName, track, monthKey){
+  const all = getCustomerHistoryByTrack(customerName, track);
+  if (!monthKey) monthKey = currentBillingMonthKey();
+  return all.filter(h => h.monthKey === monthKey);
+}
+
+// 업체의 "이번 청구월" 마지막 차수
+// (월 무관한 lastStage 대신 이번 청구월 한정으로 산출)
+function getCustomerStageByTrack(customerName, track, monthKey){
+  const monthHist = getCustomerHistoryByMonth(customerName, track, monthKey);
+  if (monthHist.length === 0) return null;
+  // 최신 (마지막 push된 항목) 반환
+  return monthHist[monthHist.length - 1].stage;
+}
+
+// 다음 차수 자동 산출 (이번 청구월 한정)
 //   트랙 B: null → "1" → "2" → "2.5" → "3" → null
-//   트랙 C: null → "1" → "2" → "2.5" → null  (3차 없음, 임계값 별도)
-function getNextStageByTrack(customerName, track){
-  const last = getCustomerStageByTrack(customerName, track);
+//   트랙 C: null → "1" → "2" → "2.5" → null  (3차 없음)
+function getNextStageByTrack(customerName, track, monthKey){
+  const last = getCustomerStageByTrack(customerName, track, monthKey);
   if (!last) return "1";
   if (last === "1") return "2";
   if (last === "2") return "2.5";
@@ -7802,11 +7920,16 @@ function getNextStageByTrack(customerName, track){
   return "1";
 }
 
-// 동일 차수 마지막 발송 정보 (트랙별)
-function getLastSentByTrack(customerName, stage, track){
-  const hist = getCustomerHistoryByTrack(customerName, track);
-  const filtered = hist.filter(h => String(h.stage) === String(stage));
+// 동일 차수 마지막 발송 정보 (이번 청구월 한정)
+function getLastSentByTrack(customerName, stage, track, monthKey){
+  const monthHist = getCustomerHistoryByMonth(customerName, track, monthKey);
+  const filtered = monthHist.filter(h => String(h.stage) === String(stage));
   return filtered.length > 0 ? filtered[filtered.length - 1] : null;
+}
+
+// 이번 청구월 안에서 같은 차수 이미 발송했는지
+function isStageAlreadySent(customerName, stage, track, monthKey){
+  return !!getLastSentByTrack(customerName, stage, track, monthKey);
 }
 
 // ─── 발송 이력 추가 (n8n 응답 200일 때만 호출) ───
@@ -7819,10 +7942,14 @@ async function addDunningHistoryByTrack(customerName, stage, monthLabel, amount,
     store[customerName] = { lastStage: null, history: [] };
   }
 
+  const sentAt = new Date().toISOString();
+  const monthKey = monthKeyFromLabel(monthLabel, sentAt);
+
   const entry = {
     stage: String(stage),
-    sentAt: new Date().toISOString(),
+    sentAt: sentAt,
     monthLabel: monthLabel || null,
+    monthKey: monthKey,                       // [신규] 청구월 키 (YYYY-MM)
     totalAmount: Number(amount) || 0,
     toEmail: toEmail || "",
     channel: "n8n",
@@ -7830,6 +7957,8 @@ async function addDunningHistoryByTrack(customerName, stage, monthLabel, amount,
   };
 
   store[customerName].history.push(entry);
+  // lastStage는 "이번 청구월" 기준이 아닌 "마지막 push" 기준 — 참고용
+  // 실제 차수 판단은 getCustomerStageByTrack(name, track) 이 사용
   store[customerName].lastStage = String(stage);
 
   await saveTrackHistory(track);
@@ -7861,6 +7990,39 @@ async function removeDunningHistoryByTrack(customerName, stageOrIndex, track){
 
   await saveTrackHistory(track);
   return true;
+}
+
+// ─── 데이터 마이그레이션 — 기존 entry에 monthKey 자동 부여 ───
+// (구버전 데이터: monthKey 없음 → sentAt + monthLabel로 산출하여 채움)
+async function migrateAddMonthKey(){
+  let bChanged = false, cChanged = false;
+
+  const fillMonthKey = (store, isC) => {
+    let changed = false;
+    Object.keys(store).forEach(name => {
+      const hist = (store[name] || {}).history || [];
+      hist.forEach(h => {
+        if (!h.monthKey) {
+          h.monthKey = monthKeyFromLabel(h.monthLabel, h.sentAt);
+          changed = true;
+        }
+      });
+    });
+    return changed;
+  };
+
+  bChanged = fillMonthKey(trackBHistory, false);
+  cChanged = fillMonthKey(trackCHistory, true);
+
+  if (bChanged) await tbhSave();
+  if (cChanged) await tchSave();
+
+  if (bChanged || cChanged) {
+    console.log("[STEP 4-D] 기존 발송 이력에 monthKey 자동 부여 완료",
+      "B:", bChanged ? "변경됨" : "변경 없음",
+      "C:", cChanged ? "변경됨" : "변경 없음");
+  }
+  return { bChanged, cChanged };
 }
 
 // ════════════════════════════════════════════
