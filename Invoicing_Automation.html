@@ -3879,75 +3879,134 @@ function renderUnpaidByCustomer(){
             return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;background:${s.bg};color:${s.color};border:1px solid ${s.color};border-radius:12px;font-size:10.5px;font-weight:700;margin-left:6px" title="${monthLabelTxt}${s.label} - ${sentLabel}">${s.icon} ${monthLabelTxt}${s.label} ✓${sentLabel?` <span style="font-weight:500;opacity:.8">(${sentLabel})</span>`:""}</span>`;
           };
 
-          // ─── [STEP 4-C/D] 발송 이력 펼침 영역 (월별 그룹화) ───
+          // ─── [STEP 4-C/D] 발송 이력 펼침 영역 (발송 시각 기준 그룹화) ───
+          // 화면에서 보고 있는 월(_unpaidViewMonthKey)에 발송된 메일만 표시
+          // 예: "5월 화면" → 5월에 보낸 메일만 (어느 청구월에 대한 것이든 무관)
           const renderHistoryDetails = (track, customerName) => {
             const history = getCustomerHistoryByTrack(customerName, track);
             if (!history || history.length === 0) return "";
 
-            // 월별 그룹화
-            const byMonth = {};
-            history.forEach(h => {
-              const mk = h.monthKey || monthKeyFromLabel(h.monthLabel, h.sentAt);
-              if (!byMonth[mk]) byMonth[mk] = [];
-              byMonth[mk].push(h);
-            });
+            // [B 옵션] 화면 월 = 현재 보고 있는 발송 시각의 캘린더 월
+            // 자동 모드일 때는 오늘 기준 "이번 달"
+            // 수동 선택 시 _unpaidViewMonthKey가 "2026-05"라면 → 5월에 발송된 메일만
+            let viewMonthKey;
+            if (_unpaidViewMonthKey) {
+              // 수동 선택 — 그 캘린더 월의 발송
+              viewMonthKey = _unpaidViewMonthKey;
+            } else {
+              // 자동 모드 — 오늘이 속한 캘린더 월
+              const now = new Date();
+              viewMonthKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+            }
 
-            // 월 키를 최신순 (역순) 정렬
-            const monthKeys = Object.keys(byMonth).sort((a,b) => b.localeCompare(a));
-            const currentMK = currentBillingMonthKey();
+            // 발송 시각 기준 캘린더 월로 필터링
+            const sentMonthKey = (h) => {
+              const d = h.sentAt ? new Date(h.sentAt) : null;
+              if (!d || isNaN(d.getTime())) return "";
+              return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+            };
 
+            const filtered = history.filter(h => sentMonthKey(h) === viewMonthKey);
+            if (filtered.length === 0) {
+              // 이 월에 발송 안 됐지만, 다른 월 이력은 있음 — 안내 + 펼침 버튼
+              const otherCount = history.length;
+              const cnId = (customerName||'').replace(/[^a-zA-Z0-9가-힣]/g,'_');
+              const allDetailsId = `dunning-history-all-${track}-${cnId}`;
+              const [yy, mm] = viewMonthKey.split("-");
+              const viewMonthLabel = `${parseInt(mm,10)}월`;
+              return `<details style="margin-top:8px;background:#fafbfc;border:1px solid #e5e7eb;border-radius:6px;padding:6px 10px">
+                <summary style="cursor:pointer;font-size:10.5px;color:#9ca3af;font-weight:600;outline:none;list-style:revert">
+                  📭 ${viewMonthLabel} 발송 이력 없음 — 다른 월 이력 ${otherCount}건 보기
+                </summary>
+                <div style="margin-top:6px;font-size:10px;color:#6b7280;padding:6px 0 2px;border-top:1px dashed #e5e7eb">
+                  ⓘ 다른 캘린더 월에 발송된 이력입니다.
+                </div>
+                ${renderAllHistoryRows(track, customerName, history)}
+              </details>`;
+            }
+
+            // 정상 케이스 — 이 월에 발송된 이력 표시
+            const sortedFiltered = [...filtered].sort((a,b) =>
+              new Date(b.sentAt||0) - new Date(a.sentAt||0)
+            );
+
+            const cnId = (customerName||'').replace(/[^a-zA-Z0-9가-힣]/g,'_');
+            const detailsId = `dunning-history-${track}-${cnId}`;
+            const [yy, mm] = viewMonthKey.split("-");
+            const viewMonthLabel = `${yy}년 ${parseInt(mm,10)}월`;
+            const otherMonthCount = history.length - filtered.length;
+
+            return `<details id="${detailsId}" style="margin-top:8px;background:#fafbfc;border:1px solid #e5e7eb;border-radius:6px;padding:6px 10px" open>
+              <summary style="cursor:pointer;font-size:10.5px;color:#6b7280;font-weight:600;outline:none;list-style:revert">
+                📋 ${viewMonthLabel} 발송 이력 ${filtered.length}건${otherMonthCount > 0 ? ` <span style="color:#9ca3af;font-weight:500">(다른 월 ${otherMonthCount}건 별도)</span>` : ""}
+              </summary>
+              ${renderHistoryRowsBlock(track, customerName, sortedFiltered)}
+              ${otherMonthCount > 0 ? `
+                <details style="margin-top:6px;border-top:1px dashed #e5e7eb;padding-top:6px">
+                  <summary style="cursor:pointer;font-size:10px;color:#9ca3af;font-weight:600;outline:none;list-style:revert">📜 다른 월 이력 ${otherMonthCount}건 보기</summary>
+                  ${renderAllHistoryRows(track, customerName, history.filter(h => sentMonthKey(h) !== viewMonthKey))}
+                </details>
+              ` : ""}
+            </details>`;
+          };
+
+          // [B 옵션] 발송 이력 row 한 묶음 렌더
+          const renderHistoryRowsBlock = (track, customerName, entries) => {
             const stageStyle = {
               "1":   { color:"#10b981", icon:"🟢" },
               "2":   { color:"#3b82f6", icon:"🔵" },
               "2.5": { color:"#f59e0b", icon:"🟠" },
               "3":   { color:"#dc2626", icon:"🔴" },
             };
+            return `<div style="margin-top:6px">${entries.map(h => {
+              const s = stageStyle[String(h.stage)] || stageStyle["1"];
+              const dt = h.sentAt ? new Date(h.sentAt) : null;
+              const dateStr = dt
+                ? `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`
+                : "(시각 미상)";
+              // 청구월 정보 (어느 발행분 대상인지) — 작게 표시
+              const billMonthTxt = h.monthLabel ? ` <span style="color:#9ca3af;font-size:9.5px">[${h.monthLabel}월 발행분]</span>` : "";
+              // [옵션 1] 보기 버튼
+              const canView = !!(h.snapshot || h.body);
+              const viewBtn = canView
+                ? `<button onclick="openDunningView('${track}', '${(customerName||'').replace(/'/g,"\\'")}', '${h.sentAt}')" style="padding:2px 8px;background:#eef2ff;color:#4338ca;border:1px solid #c7d2fe;border-radius:5px;font-size:10px;font-weight:600;cursor:pointer;font-family:inherit">📄 보기</button>`
+                : `<span style="font-size:10px;color:#d1d5db" title="이 메일은 스냅샷 없이 발송됨 (옵션 1 적용 전)">—</span>`;
+              return `<div style="display:grid;grid-template-columns:60px 1fr auto auto;gap:8px;padding:5px 0;border-top:1px dashed #e5e7eb;font-size:11px;align-items:center">
+                <span style="color:${s.color};font-weight:700">${s.icon} ${h.stage}차</span>
+                <span style="color:#6b7280">${dateStr} → ${escHtml(h.toEmail||"")}${billMonthTxt}</span>
+                <span style="color:#1f2937;font-weight:600">${fmtNum(h.totalAmount||0)}</span>
+                ${viewBtn}
+              </div>`;
+            }).join("")}</div>`;
+          };
 
-            const cnId = (customerName||'').replace(/[^a-zA-Z0-9가-힣]/g,'_');
-            const detailsId = `dunning-history-${track}-${cnId}`;
+          // [B 옵션] 전체 이력 (다른 월 펼침용) — 캘린더 월별 그룹화
+          const renderAllHistoryRows = (track, customerName, entries) => {
+            if (!entries || entries.length === 0) return "";
+            // 발송 시각의 캘린더 월로 그룹
+            const byCalMonth = {};
+            entries.forEach(h => {
+              const d = h.sentAt ? new Date(h.sentAt) : null;
+              if (!d) return;
+              const mk = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+              if (!byCalMonth[mk]) byCalMonth[mk] = [];
+              byCalMonth[mk].push(h);
+            });
+            const monthKeys = Object.keys(byCalMonth).sort((a,b) => b.localeCompare(a));
 
-            const monthBlocks = monthKeys.map(mk => {
-              const monthEntries = [...byMonth[mk]].sort((a,b) =>
+            return monthKeys.map(mk => {
+              const [yy, mm] = mk.split("-");
+              const monthLabel = `${yy}년 ${parseInt(mm,10)}월`;
+              const sortedEntries = [...byCalMonth[mk]].sort((a,b) =>
                 new Date(b.sentAt||0) - new Date(a.sentAt||0)
               );
-              const isCurrent = (mk === currentMK);
-              const [yy, mm] = mk.split("-");
-              const monthLabel = `${yy}년 ${parseInt(mm,10)}월 발행분`;
-
-              const rows = monthEntries.map(h => {
-                const s = stageStyle[String(h.stage)] || stageStyle["1"];
-                const dt = h.sentAt ? new Date(h.sentAt) : null;
-                const dateStr = dt
-                  ? `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`
-                  : "(시각 미상)";
-                // [옵션 1] 보기 버튼 — snapshot 또는 body 있을 때만 활성화
-                const canView = !!(h.snapshot || h.body);
-                const viewBtn = canView
-                  ? `<button onclick="openDunningView('${track}', '${(customerName||'').replace(/'/g,"\\'")}', '${h.sentAt}')" style="padding:2px 8px;background:#eef2ff;color:#4338ca;border:1px solid #c7d2fe;border-radius:5px;font-size:10px;font-weight:600;cursor:pointer;font-family:inherit">📄 보기</button>`
-                  : `<span style="font-size:10px;color:#d1d5db" title="이 메일은 스냅샷 없이 발송됨 (옵션 1 적용 전)">—</span>`;
-                return `<div style="display:grid;grid-template-columns:60px 1fr auto auto;gap:8px;padding:5px 0;border-top:1px dashed #e5e7eb;font-size:11px;align-items:center">
-                  <span style="color:${s.color};font-weight:700">${s.icon} ${h.stage}차</span>
-                  <span style="color:#6b7280">${dateStr} → ${escHtml(h.toEmail||"")}</span>
-                  <span style="color:#1f2937;font-weight:600">${fmtNum(h.totalAmount||0)}</span>
-                  ${viewBtn}
-                </div>`;
-              }).join("");
-
-              return `<div style="margin-top:6px">
-                <div style="display:flex;align-items:center;gap:6px;padding:5px 0;font-size:11px;font-weight:700;color:${isCurrent?'#1d4ed8':'#6b7280'}">
-                  📅 ${monthLabel} <span style="font-weight:500;color:#9ca3af">(${monthEntries.length}건)</span>
-                  ${isCurrent?'<span style="font-size:9px;background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:8px;font-weight:700">이번 청구월</span>':''}
+              return `<div style="margin-top:4px">
+                <div style="font-size:10px;font-weight:700;color:#6b7280;padding:4px 0">
+                  📅 ${monthLabel} 발송 (${sortedEntries.length}건)
                 </div>
-                ${rows}
+                ${renderHistoryRowsBlock(track, customerName, sortedEntries)}
               </div>`;
             }).join("");
-
-            return `<details id="${detailsId}" style="margin-top:8px;background:#fafbfc;border:1px solid #e5e7eb;border-radius:6px;padding:6px 10px">
-              <summary style="cursor:pointer;font-size:10.5px;color:#6b7280;font-weight:600;outline:none;list-style:revert">
-                📋 발송 이력 ${history.length}건 (${monthKeys.length}개월)
-              </summary>
-              ${monthBlocks}
-            </details>`;
           };
 
           const trackSection = (track, grp, headerColor, headerBg, icon, title) => {
