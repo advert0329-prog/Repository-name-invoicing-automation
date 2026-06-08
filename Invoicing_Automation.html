@@ -545,6 +545,14 @@ input[type="url"], input[type="password"]{
   </div>
 </div>
 
+<!-- [옵션 1] 모달: 발송 이력 메일 보기 -->
+<div class="modal-overlay" id="modal-dunning-view">
+  <div class="modal" style="max-width:780px">
+    <div class="modal-header"><h3>📄 발송된 메일 보기</h3><button class="modal-close" onclick="closeModal('modal-dunning-view')">✕</button></div>
+    <div class="modal-body" id="dunning-view-body" style="padding:0"></div>
+  </div>
+</div>
+
 <!-- 청구서 미리보기 모달 제거됨: 청구서 발행 탭 사용 중지 -->
 
 <!-- 모달: 공사안내문 자동발송 -->
@@ -606,7 +614,7 @@ input[type="url"], input[type="password"]{
   <div class="modal" style="max-width:720px">
     <div class="modal-header">
       <h3 id="tb-preview-title">📨 메일 미리보기</h3>
-      <button class="modal-close" onclick="closeModal('modal-trackb-preview')">✕</button>
+      <button class="modal-close" onclick="_pendingPreviewSnapshot=null;closeModal('modal-trackb-preview')">✕</button>
     </div>
     <div class="modal-body" id="tb-preview-body" style="padding:0"></div>
   </div>
@@ -3311,7 +3319,7 @@ function openTrackCPreview(customerName, stage){ openTrackPreview(customerName, 
 function openTrackPreview(customerName, stage, track){
   track = track || "B";
   // 트랙별 데이터 수집기 / 메일 빌더 선택
-  const groups = (track === "C") ? collectUnpaidTrackC() : collectUnpaidTrackB();
+  const groups = (track === "C") ? collectUnpaidTrackC(getViewReferenceDate()) : collectUnpaidTrackB(getViewReferenceDate());
   const g = groups.find(x => x.customerName === customerName);
   if (!g) {
     alert("업체 데이터를 찾지 못했습니다: " + customerName + (track==="C"?" (트랙 C)":" (트랙 B)"));
@@ -3334,6 +3342,37 @@ function openTrackPreview(customerName, stage, track){
     alert("메일 생성 실패: " + e.message);
     return;
   }
+
+  // [옵션 1] 발송 시점 스냅샷 임시 보관 — proceedTrackSend()가 컨텍스트에 옮김
+  _pendingPreviewSnapshot = {
+    customerName,
+    stage,
+    track,
+    monthLabel: g.monthLabel,
+    totalAmount: g.totalUnpaid || 0,
+    subject: mail.subject || "",
+    // group 데이터의 미수 내역만 추출 (메일 재현용)
+    sites: (g.sites || []).map(s => ({
+      aptName: s.aptName || "",
+      constructionName: s.constructionName || "",
+      newAmount: s.newAmount || 0,
+      newIssuedDate: s.newIssuedDate || "",
+      newItemType: s.newItemType || "",
+      newItems: (s.newItems || []).map(n => ({
+        issuedDate: n.issuedDate, amount: n.amount,
+        itemType: n.itemType || "", docNumber: n.docNumber || ""
+      })),
+      previousItems: (s.previousItems || []).map(p => ({
+        issuedDate: p.issuedDate, amount: p.amount,
+        daysOverdue: p.daysOverdue,
+        itemType: p.itemType || "", docNumber: p.docNumber || ""
+      })),
+    })),
+    refunds: (g.refunds || []).map(r => ({
+      aptName: r.aptName || "", item: r.item || "환불·공제",
+      amount: r.amount, date: r.date, itemType: r.itemType || ""
+    })),
+  };
 
   // 차수별 색상·라벨 (트랙별 라벨 차별화)
   const stageMeta = (track === "C") ? {
@@ -3391,7 +3430,7 @@ function openTrackPreview(customerName, stage, track){
         ✅ <b>발송 흐름</b>: "발송 진행" 클릭 → 메일 발송 모달 열림 → n8n 자동발송 시 발송 이력 자동 기록<br/>
         <span style="color:#9ca3af">트랙 ${track}${track==='C'?' 특허료':''} · ${customerName} · ${stage}차 · ${fmtNum(g.totalUnpaid||0)}</span>
       </div>
-      <button onclick="closeModal('modal-trackb-preview')" style="padding:9px 18px;background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">취소</button>
+      <button onclick="_pendingPreviewSnapshot=null;closeModal('modal-trackb-preview')" style="padding:9px 18px;background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">취소</button>
       <button onclick="proceedTrackSend('${esc(mail.to)}', '${esc(mail.subject).replace(/'/g,"\\'")}', '${track}', '${esc(customerName).replace(/'/g,"\\'")}', '${stage}', ${g.monthLabel||"null"}, ${g.totalUnpaid||0})" style="padding:9px 22px;background:${meta.color};color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;box-shadow:0 1px 2px rgba(0,0,0,.1)">📤 발송 진행</button>
     </div>
   `;
@@ -3418,14 +3457,27 @@ function proceedTrackSend(to, subject, track, customerName, stage, monthLabel, t
   // selBillId 비워두기 - 그룹 발송이라 특정 청구서 1건에 매핑되지 않음
   selBillId = null;
 
+  // [옵션 1] 발송 시점 스냅샷 — openTrackPreview에서 보관한 데이터 + 최종 편집된 본문
+  const snap = _pendingPreviewSnapshot;
+
   // [STEP 4-B] 발송 이력 컨텍스트 설정 — sendEmail()이 n8n 200 응답 시 사용
   setDunningContext({
     customerName: customerName || "",
     stage: stage || "",
     monthLabel: monthLabel || null,
     amount: Number(totalAmount) || 0,
-    track: track || "B"
+    track: track || "B",
+    // [옵션 1] 스냅샷 + 최종 메일 본문 (재현용)
+    subject: subject || (snap && snap.subject) || "",
+    body: finalBody,  // 사용자가 편집한 최종 본문
+    snapshot: snap ? {
+      sites: snap.sites || [],
+      refunds: snap.refunds || []
+    } : null
   });
+
+  // 임시 스냅샷 클리어 (다음 메일에 영향 안 가게)
+  _pendingPreviewSnapshot = null;
 
   // 트랙B 모달 닫고 → 기존 메일 모달 열기
   closeModal("modal-trackb-preview");
@@ -3469,8 +3521,134 @@ function confirmResend(customerName, stage, track){
   );
 }
 
+// ════════════════════════════════════════════
+// [옵션 1] 발송된 메일 보기 — 이력 entry의 snapshot/body로 메일 재현
+// ════════════════════════════════════════════
+function openDunningView(track, customerName, sentAtIso){
+  const history = getCustomerHistoryByTrack(customerName, track);
+  const entry = history.find(h => h.sentAt === sentAtIso);
+  if (!entry) {
+    alert("해당 발송 이력을 찾지 못했습니다.");
+    return;
+  }
+
+  const dt = entry.sentAt ? new Date(entry.sentAt) : null;
+  const dtStr = dt
+    ? `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`
+    : "(시각 미상)";
+  const trackName = (track === "C") ? "트랙 C · 특허료" : "트랙 B · 자재";
+  const stageStyle = {
+    "1":   { color:"#10b981", icon:"🟢" },
+    "2":   { color:"#3b82f6", icon:"🔵" },
+    "2.5": { color:"#f59e0b", icon:"🟠" },
+    "3":   { color:"#dc2626", icon:"🔴" },
+  };
+  const s = stageStyle[String(entry.stage)] || stageStyle["1"];
+
+  const monthLabelTxt = entry.monthLabel ? `${entry.monthLabel}월 발행분` : (entry.monthKey || "");
+
+  // 본문 — entry.body 있으면 그대로, 없으면 snapshot으로 간단 재구성
+  let bodyText = entry.body || "";
+  if (!bodyText && entry.snapshot) {
+    const lines = [];
+    lines.push(`${customerName} 담당자님께`);
+    lines.push("");
+    lines.push(`(스냅샷 기반 재구성 — 원본 본문 미저장)`);
+    lines.push("");
+    (entry.snapshot.sites || []).forEach(site => {
+      lines.push("■ " + (site.aptName || site.constructionName || "현장"));
+      (site.newItems || []).forEach(n => {
+        lines.push(`   · ${n.issuedDate} 발행 ₩${(n.amount||0).toLocaleString()}`);
+      });
+      (site.previousItems || []).forEach(p => {
+        lines.push(`   · ${p.issuedDate} 청구 ₩${(p.amount||0).toLocaleString()} — ${p.daysOverdue||0}일 경과 (이전 미수)`);
+      });
+    });
+    (entry.snapshot.refunds || []).forEach(r => {
+      lines.push(`■ 환불·공제: ${r.date} ${r.item} ₩${(r.amount||0).toLocaleString()}`);
+    });
+    lines.push("");
+    lines.push(`전체 합계: ₩${(entry.totalAmount||0).toLocaleString()} (공급가액 기준, VAT 별도)`);
+    bodyText = lines.join("\n");
+  }
+  if (!bodyText) {
+    bodyText = "(본문 정보가 저장되지 않은 이력입니다 — 옵션 1 적용 전 발송)";
+  }
+
+  // 스냅샷 요약 (사이드 패널)
+  let snapshotSummary = "";
+  if (entry.snapshot && entry.snapshot.sites) {
+    const sites = entry.snapshot.sites;
+    snapshotSummary = `
+      <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px 14px;font-size:11.5px;line-height:1.7">
+        <div style="font-weight:700;color:#374151;margin-bottom:8px;border-bottom:1px solid #e5e7eb;padding-bottom:6px">📍 발송 시점 미수 내역 (현장 ${sites.length}개)</div>
+        ${sites.map(site => {
+          const newCount = (site.newItems||[]).length;
+          const prevCount = (site.previousItems||[]).length;
+          return `<div style="margin-bottom:6px">
+            <div style="font-weight:600;color:#1f2937">■ ${escHtml(site.aptName || site.constructionName || "현장")}</div>
+            <div style="padding-left:10px;color:#6b7280;font-size:10.5px">
+              ${newCount > 0 ? `· 신규 ${newCount}건 (당월 발행)` : ""}
+              ${prevCount > 0 ? `<br>· 이전 미수 ${prevCount}건` : ""}
+            </div>
+          </div>`;
+        }).join("")}
+      </div>`;
+  }
+
+  const html = `
+    <div style="background:#fafbfc;padding:16px 20px;border-bottom:1px solid #e5e7eb">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:${s.color}20;color:${s.color};border:1px solid ${s.color};border-radius:12px;font-size:11px;font-weight:700">${s.icon} ${entry.stage}차</span>
+        <span style="font-size:11px;color:#6b7280">${trackName}</span>
+        <span style="font-size:11px;color:#6b7280">·</span>
+        <span style="font-size:11px;color:#6b7280">${monthLabelTxt}</span>
+      </div>
+      <div style="font-size:13px;color:#1f2937;font-weight:700;margin-bottom:4px">${escHtml(entry.subject || "(제목 정보 없음)")}</div>
+      <div style="font-size:11px;color:#6b7280;line-height:1.7">
+        <div><span style="color:#9ca3af">발송 시각</span> &nbsp;<b>${dtStr}</b></div>
+        <div><span style="color:#9ca3af">받는 사람</span> &nbsp;<b>${escHtml(entry.toEmail || "(미상)")}</b></div>
+        <div><span style="color:#9ca3af">발송 금액</span> &nbsp;<b style="color:#dc2626">${fmtNum(entry.totalAmount||0)}</b></div>
+        <div><span style="color:#9ca3af">발송 채널</span> &nbsp;<b>${entry.channel || "n8n"}</b> (자동발송)</div>
+      </div>
+    </div>
+    <div style="padding:14px 20px">
+      <div style="display:grid;grid-template-columns:1fr 280px;gap:14px">
+        <div>
+          <div style="font-size:10px;font-weight:700;color:#9ca3af;letter-spacing:.4px;margin-bottom:6px">발송된 메일 본문</div>
+          <textarea readonly style="width:100%;min-height:380px;padding:14px;font-family:inherit;font-size:12px;line-height:1.75;color:#1f2937;border:1px solid #e5e7eb;border-radius:8px;background:#fff;outline:none;box-sizing:border-box;white-space:pre-wrap;word-break:keep-all">${escHtml(bodyText)}</textarea>
+        </div>
+        <div>
+          <div style="font-size:10px;font-weight:700;color:#9ca3af;letter-spacing:.4px;margin-bottom:6px">발송 시점 스냅샷</div>
+          ${snapshotSummary || `<div style="background:#fef9c3;border:1px solid #fde047;border-radius:8px;padding:12px;font-size:11px;color:#854d0e;line-height:1.6">⚠️ 스냅샷 데이터가 저장되지 않은 이력입니다.<br>(옵션 1 기능 적용 전 발송)</div>`}
+        </div>
+      </div>
+    </div>
+    <div style="padding:12px 20px;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:8px">
+      <button onclick="copyDunningBody(this)" data-body="${escHtml(bodyText)}" style="padding:8px 14px;background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">📋 본문 복사</button>
+      <button onclick="closeModal('modal-dunning-view')" style="padding:8px 18px;background:#1f2937;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">닫기</button>
+    </div>
+  `;
+  document.getElementById("dunning-view-body").innerHTML = html;
+  openModal("modal-dunning-view");
+}
+
+function copyDunningBody(btn){
+  const body = btn.getAttribute("data-body") || "";
+  // HTML 디코드
+  const tmp = document.createElement("div");
+  tmp.innerHTML = body;
+  const text = tmp.textContent || tmp.innerText || body;
+  navigator.clipboard.writeText(text).then(() => {
+    const orig = btn.innerHTML;
+    btn.innerHTML = "✅ 복사됨";
+    setTimeout(() => { btn.innerHTML = orig; }, 1500);
+  }).catch(() => alert("복사 실패. 본문을 직접 선택하여 복사해 주세요."));
+}
+
 function renderUnpaidByCustomer(){
-  const groups = collectUnpaidByCustomer();
+  const refDate = getViewReferenceDate();
+  const groups = collectUnpaidByCustomer(refDate);
   const totalNet = groups.reduce((s,g)=>s+g.totalUnpaid, 0);
   const withRefunds = groups.filter(g => g.refunds.length > 0).length;
 
@@ -3488,6 +3666,15 @@ function renderUnpaidByCustomer(){
     return g.sites.some(s => (s.aptName||"").toLowerCase().includes(searchVal));
   });
 
+  // [월 선택기] 현재 보고 있는 월 정보
+  const _availMonths = getAvailableMonthKeys();
+  const _currentMk = _unpaidViewMonthKey || (_availMonths.find(m => m.isAuto)?.monthKey || "");
+  const _currentMonth = _availMonths.find(m => m.monthKey === _currentMk);
+  const _isAutoMode = !_unpaidViewMonthKey;
+  const _currentIdx = _availMonths.findIndex(m => m.monthKey === _currentMk);
+  const _canGoNewer = (_currentIdx > 0);                    // 더 최신 월로 갈 수 있나
+  const _canGoOlder = (_currentIdx >= 0 && _currentIdx < _availMonths.length - 1);  // 더 과거로
+
   let html = `<p class="sec-title">💰 미수금 관리</p>
 
   <!-- 보기 모드 토글 -->
@@ -3501,7 +3688,22 @@ function renderUnpaidByCustomer(){
     <div class="stat-card" style="text-align:center;padding:12px"><div class="label">발송 대상 업체</div><div class="value v-blue" style="font-size:16px">${groups.length}개</div></div>
     <div class="stat-card" style="text-align:center;padding:12px"><div class="label">순미수 합계</div><div class="value ${totalNet>0?"v-red":"v-gray"}" style="font-size:16px">${fmtNum(totalNet)}</div></div>
     <div class="stat-card" style="text-align:center;padding:12px"><div class="label">환불·공제 포함</div><div class="value v-gray" style="font-size:16px">${withRefunds}개</div></div>
-    <div class="stat-card" style="text-align:center;padding:12px"><div class="label">기준 월 (전월)</div><div class="value v-gray" style="font-size:16px">${(groups[0]||{}).monthLabel || "-"}월</div></div>
+    <!-- [월 선택기] 기준월 카드 (클릭/화살표/드롭다운) -->
+    <div class="stat-card" style="text-align:center;padding:10px 12px;${_isAutoMode?'':'background:#eff6ff;border-color:#bfdbfe'}">
+      <div class="label" style="margin-bottom:4px">${_isAutoMode?'기준 월 (전월)':'🔍 조회 중인 월'}</div>
+      <div style="display:flex;align-items:center;justify-content:center;gap:4px;margin-bottom:3px">
+        <button onclick="shiftUnpaidViewMonth(-1)" ${_canGoOlder?'':'disabled'} title="이전 월" style="width:22px;height:22px;border:1px solid #d1d5db;background:#fff;border-radius:4px;font-size:11px;cursor:${_canGoOlder?'pointer':'not-allowed'};color:${_canGoOlder?'#1f2937':'#d1d5db'};font-family:inherit;padding:0;display:flex;align-items:center;justify-content:center">◀</button>
+        <select onchange="setUnpaidViewMonth(this.value === '__auto__' ? null : this.value)" style="font-size:13px;font-weight:700;color:${_isAutoMode?'#374151':'#1d4ed8'};border:1px solid ${_isAutoMode?'#d1d5db':'#93c5fd'};border-radius:5px;padding:2px 6px;background:#fff;cursor:pointer;font-family:inherit;min-width:90px;text-align:center;text-align-last:center">
+          <option value="__auto__" ${_isAutoMode?'selected':''}>📅 자동 (${(_availMonths.find(m=>m.isAuto)?.monthKey||'').replace('-','년 ')+'월'})</option>
+          ${_availMonths.map(m => {
+            const sentTxt = (m.sentCountB||m.sentCountC) ? ` ✉️${(m.sentCountB||0)+(m.sentCountC||0)}` : "";
+            return `<option value="${m.monthKey}" ${(!_isAutoMode && m.monthKey===_currentMk)?'selected':''}>${m.label}${sentTxt}</option>`;
+          }).join("")}
+        </select>
+        <button onclick="shiftUnpaidViewMonth(1)" ${_canGoNewer?'':'disabled'} title="다음 월" style="width:22px;height:22px;border:1px solid #d1d5db;background:#fff;border-radius:4px;font-size:11px;cursor:${_canGoNewer?'pointer':'not-allowed'};color:${_canGoNewer?'#1f2937':'#d1d5db'};font-family:inherit;padding:0;display:flex;align-items:center;justify-content:center">▶</button>
+      </div>
+      ${!_isAutoMode ? `<button onclick="resetUnpaidViewMonth()" style="font-size:9.5px;color:#6b7280;background:transparent;border:none;cursor:pointer;text-decoration:underline;font-family:inherit;padding:0;margin-top:2px">↻ 자동으로 복귀</button>` : `<div style="font-size:9.5px;color:#9ca3af;margin-top:2px">자동 — 오늘 기준 전월</div>`}
+    </div>
   </div>
 
   <!-- 안내 박스 -->
@@ -3603,8 +3805,8 @@ function renderUnpaidByCustomer(){
         ${(()=>{
           // 이 업체에 속한 트랙별 미수 그룹 가져오기
           const cn = g.customerName;
-          const tbGroups = collectUnpaidTrackB();
-          const tcGroups = collectUnpaidTrackC();
+          const tbGroups = collectUnpaidTrackB(refDate);
+          const tcGroups = collectUnpaidTrackC(refDate);
           const tb = tbGroups.find(x=>x.customerName===cn);
           const tc = tcGroups.find(x=>x.customerName===cn);
 
@@ -3718,10 +3920,16 @@ function renderUnpaidByCustomer(){
                 const dateStr = dt
                   ? `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`
                   : "(시각 미상)";
-                return `<div style="display:grid;grid-template-columns:60px 1fr auto;gap:8px;padding:5px 0;border-top:1px dashed #e5e7eb;font-size:11px;align-items:center">
+                // [옵션 1] 보기 버튼 — snapshot 또는 body 있을 때만 활성화
+                const canView = !!(h.snapshot || h.body);
+                const viewBtn = canView
+                  ? `<button onclick="openDunningView('${track}', '${(customerName||'').replace(/'/g,"\\'")}', '${h.sentAt}')" style="padding:2px 8px;background:#eef2ff;color:#4338ca;border:1px solid #c7d2fe;border-radius:5px;font-size:10px;font-weight:600;cursor:pointer;font-family:inherit">📄 보기</button>`
+                  : `<span style="font-size:10px;color:#d1d5db" title="이 메일은 스냅샷 없이 발송됨 (옵션 1 적용 전)">—</span>`;
+                return `<div style="display:grid;grid-template-columns:60px 1fr auto auto;gap:8px;padding:5px 0;border-top:1px dashed #e5e7eb;font-size:11px;align-items:center">
                   <span style="color:${s.color};font-weight:700">${s.icon} ${h.stage}차</span>
                   <span style="color:#6b7280">${dateStr} → ${escHtml(h.toEmail||"")}</span>
                   <span style="color:#1f2937;font-weight:600">${fmtNum(h.totalAmount||0)}</span>
+                  ${viewBtn}
                 </div>`;
               }).join("");
 
@@ -6662,9 +6870,11 @@ async function sendEmail(){
         const ctx = getDunningContext();
         if (ctx && ctx.customerName && ctx.stage) {
           try {
+            // [옵션 1] subject/body/snapshot extra로 전달 — 메일 재현용
             await addDunningHistoryByTrack(
               ctx.customerName, ctx.stage, ctx.monthLabel,
-              ctx.amount, to, "n8n", ctx.track
+              ctx.amount, to, "n8n", ctx.track,
+              { subject: ctx.subject || subject, body: ctx.body || body, snapshot: ctx.snapshot }
             );
             dunningRecorded = true;
             console.log("[STEP 4-B] 발송 이력 기록 완료:", ctx);
@@ -7878,8 +8088,109 @@ function tchFbConnect(){
 //   예: 5월 발송 → 4월 발행분 → monthKey = "2026-04"
 // ════════════════════════════════════════════
 
-// 현재 청구월 키 (YYYY-MM) — 발송 시점의 전월
+// [월 선택기] 사용자가 화면에서 선택한 기준월 (null이면 자동 = 오늘 기준 전월)
+// 미수금 화면, 미리보기, 이력 라벨, 재발송 경고 등 모든 곳에서 일관 사용
+let _unpaidViewMonthKey = null;  // "2026-05" 또는 null
+
+// [월 선택기] 화면 데이터 수집 시 쓸 기준일자 산출
+// _unpaidViewMonthKey가 "2026-05"라면 → 6월 1일을 referenceDate로 (5월이 전월이 되도록)
+// null이면 → 오늘 (자동 = 오늘 기준 전월)
+function getViewReferenceDate(){
+  if (!_unpaidViewMonthKey) return new Date();
+  const [y, m] = _unpaidViewMonthKey.split("-").map(Number);
+  if (!y || !m) return new Date();
+  // m월이 prevMonth가 되도록 → m+1월의 1일
+  return new Date(y, m, 1);  // JS Date: month 0-indexed, m이 1~12면 m가 그 다음달
+}
+
+// [월 선택기] 시스템에 존재하는 모든 가용 월 목록 산출
+// projects/allBills의 invoiceDate + trackBHistory/trackCHistory의 monthKey 합집합
+// 반환: [{monthKey, label, hasData, sentCountB, sentCountC}] 최신순
+function getAvailableMonthKeys(){
+  const set = new Set();
+  const dataCount = {};   // monthKey: 데이터 건수
+  const sentB = {};        // monthKey: 트랙 B 발송 건수
+  const sentC = {};        // monthKey: 트랙 C 발송 건수
+
+  const addByDate = (dateStr) => {
+    if (!dateStr) return;
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return;
+    const mk = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+    set.add(mk);
+    dataCount[mk] = (dataCount[mk] || 0) + 1;
+  };
+
+  // allBills의 invoiceDate (수금완료 포함 — 어차피 화면에선 미수만 표시)
+  (allBills||[]).forEach(b => addByDate(b.invoiceDate || b.issuedDate));
+  // projects.orders의 invoiceDate
+  (projects||[]).forEach(p => (p.orders||[]).forEach(o => addByDate(o.invoiceDate)));
+
+  // 발송 이력의 monthKey
+  Object.values(trackBHistory||{}).forEach(g => {
+    (g.history||[]).forEach(h => {
+      if (h.monthKey) {
+        set.add(h.monthKey);
+        sentB[h.monthKey] = (sentB[h.monthKey] || 0) + 1;
+      }
+    });
+  });
+  Object.values(trackCHistory||{}).forEach(g => {
+    (g.history||[]).forEach(h => {
+      if (h.monthKey) {
+        set.add(h.monthKey);
+        sentC[h.monthKey] = (sentC[h.monthKey] || 0) + 1;
+      }
+    });
+  });
+
+  // 오늘 기준 전월(자동 기본값)도 항상 포함
+  const now = new Date();
+  const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const autoMk = `${prev.getFullYear()}-${String(prev.getMonth()+1).padStart(2,"0")}`;
+  set.add(autoMk);
+
+  // 최신순 정렬
+  return Array.from(set).sort((a,b) => b.localeCompare(a)).map(mk => ({
+    monthKey: mk,
+    label: `${mk.split("-")[0]}년 ${parseInt(mk.split("-")[1],10)}월 발행분`,
+    hasData: (dataCount[mk] || 0) > 0,
+    sentCountB: sentB[mk] || 0,
+    sentCountC: sentC[mk] || 0,
+    isAuto: (mk === autoMk),
+  }));
+}
+
+// [월 선택기] 화면 월 변경 핸들러
+function setUnpaidViewMonth(monthKey){
+  _unpaidViewMonthKey = monthKey || null;
+  // 미수금 화면이라면 다시 렌더
+  if (currentTab === 4) {
+    renderPage(currentTab);
+  }
+}
+
+// [월 선택기] 화살표 이동 — 이전/다음 월로
+function shiftUnpaidViewMonth(delta){
+  const months = getAvailableMonthKeys();
+  if (!months.length) return;
+  const currentMk = _unpaidViewMonthKey || months.find(m => m.isAuto)?.monthKey;
+  const idx = months.findIndex(m => m.monthKey === currentMk);
+  if (idx < 0) return;
+  // 배열은 최신순 → delta=-1 (이전 달) = idx+1, delta=+1 (다음 달) = idx-1
+  const newIdx = idx - delta;
+  if (newIdx < 0 || newIdx >= months.length) return;
+  setUnpaidViewMonth(months[newIdx].monthKey);
+}
+
+// [월 선택기] 자동 모드로 복귀
+function resetUnpaidViewMonth(){
+  setUnpaidViewMonth(null);
+}
+
+// 현재 청구월 키 (YYYY-MM) — 사용자 선택 우선, 없으면 오늘 기준 전월
 function currentBillingMonthKey(){
+  if (_unpaidViewMonthKey) return _unpaidViewMonthKey;
   const now = new Date();
   const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const y = prev.getFullYear();
@@ -7964,7 +8275,7 @@ function isStageAlreadySent(customerName, stage, track, monthKey){
 }
 
 // ─── 발송 이력 추가 (n8n 응답 200일 때만 호출) ───
-async function addDunningHistoryByTrack(customerName, stage, monthLabel, amount, toEmail, channel, track){
+async function addDunningHistoryByTrack(customerName, stage, monthLabel, amount, toEmail, channel, track, extra){
   if (!customerName || !stage) return false;
   if (channel !== "n8n") return false;  // n8n만 기록 (Gmail/mailto 제외)
 
@@ -7980,11 +8291,15 @@ async function addDunningHistoryByTrack(customerName, stage, monthLabel, amount,
     stage: String(stage),
     sentAt: sentAt,
     monthLabel: monthLabel || null,
-    monthKey: monthKey,                       // [신규] 청구월 키 (YYYY-MM)
+    monthKey: monthKey,                       // [STEP 4-D] 청구월 키 (YYYY-MM)
     totalAmount: Number(amount) || 0,
     toEmail: toEmail || "",
     channel: "n8n",
-    track: track || "B"
+    track: track || "B",
+    // [옵션 1] 발송 시점 스냅샷 (메일 재현용)
+    subject: (extra && extra.subject) || "",
+    body: (extra && extra.body) || "",
+    snapshot: (extra && extra.snapshot) || null,
   };
 
   store[customerName].history.push(entry);
@@ -8061,7 +8376,11 @@ async function migrateAddMonthKey(){
 // proceedTrackSend()가 설정 → sendEmail()이 n8n 200 응답 시 사용 → 클리어
 // ════════════════════════════════════════════
 let _pendingDunningContext = null;
-// 형식: { customerName, stage, monthLabel, amount, track }
+// 형식: { customerName, stage, monthLabel, amount, track, subject, body, snapshot }
+
+// [옵션 1] 미리보기 모달에서 발송 진행 직전까지 보관되는 그룹 데이터 스냅샷
+// openTrackPreview()에서 설정 → proceedTrackSend()에서 컨텍스트로 옮긴 후 클리어
+let _pendingPreviewSnapshot = null;
 
 function setDunningContext(ctx) {
   _pendingDunningContext = ctx;
