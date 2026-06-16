@@ -387,9 +387,9 @@ input[type="url"], input[type="password"]{
   <button class="tab-btn active" onclick="showTab(0)">전체현황</button>
   <button class="tab-btn" onclick="showTab(1)">현장 관리</button>
   <button class="tab-btn" onclick="showTab(2)">자재 주문</button>
+  <button class="tab-btn" onclick="showTab(5)">🔖 특허료 관리</button>
   <button class="tab-btn" onclick="showTab(3)" style="display:none" aria-hidden="true" tabindex="-1">청구서 발행 (사용 중지)</button>
   <button class="tab-btn" onclick="showTab(4)">미수금 관리</button>
-  <button class="tab-btn" onclick="showTab(5)">🔖 특허료 관리</button>
   <button class="tab-btn" onclick="showTab(6)">📥 엑셀 가져오기</button>
   <button class="tab-btn" id="tab-btn-7" onclick="showTab(7)" style="color:#16a34a">✅ 완료된 현장</button>
   <button class="tab-btn" style="color:#16a34a;font-weight:600" onclick="downloadMasterExcel()">📊 엑셀 다운로드</button>
@@ -1731,14 +1731,14 @@ function ordDetailHTML(p){
       const isLate=since>=30, isWarn=since>=14&&since<30;
       const _invFmt=ordFmt(o.invoiceDate), _invDf=ordDfToday(o.invoiceDate);
       const invBtn=o.invoiceDate&&_invFmt&&_invFmt!=='-'
-        ?`<button class="oev2 oev2-done" onclick="ordOpenPop(event,${p.id},${o.id},'invoiceDate','계산서발행일','${o.invoiceDate}')">✅ ${_invFmt}<span class="oev2-day">${_invDf!=null?_invDf+'일전':''}</span></button>`
+        ?`<button class="oev2 oev2-done" onclick="ordOpenPop(event,${p.id},${o.id},'invoiceDate','계산서발행일','${o.invoiceDate}')">✅ ${_invFmt}</button>`
         :`<button class="oev2 oev2-wait" onclick="ordOpenPop(event,${p.id},${o.id},'invoiceDate','계산서발행일',null)">미발행</button>`;
       let depBtn;
       const _depFmt=ordFmt(o.depositDate), _depDf=ordDfToday(o.depositDate);
       const partiallyPaid = isOrderPartiallyPaid(o);
       if(o.depositDate&&_depFmt&&_depFmt!=='-'){
         // 전액 완납
-        depBtn=`<button class="oev2 oev2-done" onclick="ordOpenPop(event,${p.id},${o.id},'depositDate','입금일','${o.depositDate}')">✅ ${_depFmt}<span class="oev2-day">${_depDf!=null?_depDf+'일전':''}</span></button>`;
+        depBtn=`<button class="oev2 oev2-done" onclick="ordOpenPop(event,${p.id},${o.id},'depositDate','입금일','${o.depositDate}')">✅ ${_depFmt}</button>`;
       } else if(partiallyPaid){
         // 부분입금 상태
         const paid = getOrderPaidAmount(o);
@@ -4181,10 +4181,10 @@ function jumpToOrderAndExpand(pid){
 //   · 발행(생성)은 자재주문 탭에 유지 (자재 누계 종속 트리거)
 //   · 여기선 계산서발행 / 입금 / 독촉 / 발행취소만 관리 ("관리만 이전")
 // ════════════════════════════════════════════
-let _patentFilter = "all";  // all | unpaid | paid
+let _patentFilter = "unpaid";  // unpaid(미수, 기본) | noinv(계산서 미발행) | all(완료 포함)
 
 function setPatentFilter(f){
-  _patentFilter = f || "all";
+  _patentFilter = f || "unpaid";
   if (currentTab === 5) renderPage(currentTab);
 }
 
@@ -4192,33 +4192,48 @@ function renderPatentRoyalty(){
   const all = (allBills||[]).filter(b => isPatentBillType(b.type));
   if (all.length === 0){
     document.getElementById("page-5").innerHTML =
-      `<div style="text-align:center;padding:60px 0;color:#9ca3af"><div style="font-size:40px">🔖</div><p style="margin-top:12px">발행된 특허료 청구가 없습니다.</p><p style="font-size:11px;margin-top:6px;color:#c4b5cd">자재 주문 탭에서 특허료 요청서를 발행하면 여기서 관리됩니다.</p></div>`;
+      `<div style="text-align:center;padding:60px 0;color:var(--gray-400)"><div style="font-size:40px">🔖</div><p style="margin-top:12px">발행된 특허료 청구가 없습니다.</p><p style="font-size:11px;margin-top:6px">자재 주문 탭에서 특허료 요청서를 발행하면 여기서 관리됩니다.</p></div>`;
     return;
   }
 
-  const totalAmt   = all.reduce((s,b)=>s+(Number(b.amount)||0),0);
-  const paidList   = all.filter(b=>b.status==="수금완료");
-  const paidAmt    = paidList.reduce((s,b)=>s+(Number(b.amount)||0),0);
-  const unpaidList = all.filter(b=>b.status!=="수금완료");
-  const unpaidAmt  = totalAmt - paidAmt;
+  const sum = arr => arr.reduce((s,b)=>s+(Number(b.amount)||0),0);
+  const unpaidList = all.filter(b => b.status !== "수금완료");   // 미수 (기본)
+  const noinvList  = all.filter(b => !b.invoiceDate);           // 계산서 미발행
+  const doneList   = all.filter(b => b.status === "수금완료");   // 수금완료
 
-  let view = all;
-  if (_patentFilter === "unpaid") view = unpaidList;
-  else if (_patentFilter === "paid") view = paidList;
+  let view;
+  if (_patentFilter === "noinv") view = noinvList;
+  else if (_patentFilter === "all") view = all;
+  else { _patentFilter = "unpaid"; view = unpaidList; }
 
-  const fBtn = (key,label,n) =>
-    `<button onclick="setPatentFilter('${key}')" style="padding:5px 12px;border-radius:7px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;border:1px solid ${_patentFilter===key?'#be185d':'#e5e7eb'};background:${_patentFilter===key?'#fdf2f8':'#fff'};color:${_patentFilter===key?'#9d174d':'#6b7280'}">${label} ${n}</button>`;
-
+  // ── 요약 카드 + 필터 (자재주문 탭과 동일한 ord-stat / ord-ftab UI) ──
+  const pfOn = (k, cls) => (_patentFilter===k ? (cls||"on") : "");
   let html = `<p class="sec-title">🔖 특허료 관리</p>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;padding:12px 14px;background:#fdf2f8;border:1px solid #fbcfe8;border-radius:10px">
-      <div style="flex:1;min-width:110px"><div style="font-size:10px;color:#9d174d;font-weight:700">총 발행</div><div style="font-size:15px;font-weight:800;color:#9d174d">${fmtNum(totalAmt)} <span style="font-size:11px;font-weight:600;color:#be185d">(${all.length}건)</span></div></div>
-      <div style="flex:1;min-width:110px"><div style="font-size:10px;color:#dc2626;font-weight:700">미수</div><div style="font-size:15px;font-weight:800;color:#dc2626">${fmtNum(unpaidAmt)} <span style="font-size:11px;font-weight:600">(${unpaidList.length}건)</span></div></div>
-      <div style="flex:1;min-width:110px"><div style="font-size:10px;color:#16a34a;font-weight:700">수금완료</div><div style="font-size:15px;font-weight:800;color:#16a34a">${fmtNum(paidAmt)} <span style="font-size:11px;font-weight:600">(${paidList.length}건)</span></div></div>
+    <div class="ord-stat-grid">
+      <div class="ord-stat-box ${pfOn('unpaid')}" onclick="setPatentFilter('unpaid')">
+        <div class="slbl">🔖 미수</div><div class="snum" style="color:var(--purple)">${unpaidList.length}</div>
+        ${unpaidList.length>0?`<div style="font-size:10px;color:var(--gray-400);margin-top:2px;font-weight:500">${fmtNum(sum(unpaidList))}원</div>`:""}
+      </div>
+      <div class="ord-stat-box ${pfOn('noinv')}" onclick="setPatentFilter('noinv')">
+        <div class="slbl">🧾 계산서 미발행</div><div class="snum" style="color:#ea580c">${noinvList.length}</div>
+        ${noinvList.length>0?`<div style="font-size:10px;color:var(--gray-400);margin-top:2px;font-weight:500">${fmtNum(sum(noinvList))}원</div>`:""}
+      </div>
+      <div class="ord-stat-box ${pfOn('all')}" onclick="setPatentFilter('all')">
+        <div class="slbl">✅ 완료 포함(전체)</div><div class="snum" style="color:var(--green)">${all.length}</div>
+        <div style="font-size:10px;color:var(--gray-400);margin-top:2px;font-weight:500">완료 ${doneList.length}건</div>
+      </div>
     </div>
-    <div style="display:flex;gap:6px;margin-bottom:12px">${fBtn('all','전체',all.length)}${fBtn('unpaid','미수',unpaidList.length)}${fBtn('paid','수금완료',paidList.length)}</div>`;
+    <div class="ord-ctrl">
+      <span style="font-size:11px;font-weight:700;color:var(--gray-600)">필터</span>
+      <button class="ord-ftab ${pfOn('unpaid','on-purple')}" onclick="setPatentFilter('unpaid')">🔖 미수</button>
+      <button class="ord-ftab ${pfOn('noinv','on-orange')}" onclick="setPatentFilter('noinv')">🧾 계산서 미발행</button>
+      <button class="ord-ftab ${pfOn('all','on-green')}" onclick="setPatentFilter('all')">✅ 완료 현장 포함</button>
+      <div style="margin-left:auto;font-size:11px;color:var(--gray-400)">기본: 미수만 표시</div>
+    </div>`;
 
   if (view.length === 0){
-    html += `<div style="text-align:center;padding:30px 0;color:#9ca3af;font-size:12px">해당 조건의 특허료 청구가 없습니다.</div>`;
+    const emptyMsg = _patentFilter==="noinv" ? "계산서 미발행 건이 없습니다." : (_patentFilter==="all" ? "특허료 청구가 없습니다." : "미수 특허료가 없습니다.");
+    html += `<div style="text-align:center;padding:30px 0;color:var(--gray-400);font-size:12px">${emptyMsg}</div>`;
     document.getElementById("page-5").innerHTML = html;
     return;
   }
@@ -4231,7 +4246,7 @@ function renderPatentRoyalty(){
     groups[k].bills.push(b);
   });
 
-  const headerBg="#fdf2f8", headerText="#9d174d", headerColor="#fbcfe8";
+  const accent="var(--purple)", accentBg="var(--purple-light)", accentBd="#e9d5ff";
 
   Object.values(groups).forEach(g => {
     const rows = g.bills.map((b,i) => {
@@ -4244,24 +4259,25 @@ function renderPatentRoyalty(){
       const issuedFmt=ordFmt(b.issuedDate), issuedDf=ordDfToday(b.issuedDate);
       const pid=b.projectId;
       const invBtn = b.invoiceDate && _invFmt && _invFmt!=='-'
-        ? `<button class="oev2 oev2-done" onclick="ordOpenPop(event,${pid},${b.id},'invoiceDate','계산서발행일','${b.invoiceDate}','bill')">✅ ${_invFmt}<span class="oev2-day">${_invDf!=null?_invDf+'일전':''}</span></button>`
+        ? `<button class="oev2 oev2-done" onclick="ordOpenPop(event,${pid},${b.id},'invoiceDate','계산서발행일','${b.invoiceDate}','bill')">✅ ${_invFmt}</button>`
         : `<button class="oev2 oev2-wait" onclick="ordOpenPop(event,${pid},${b.id},'invoiceDate','계산서발행일',null,'bill')">미발행</button>`;
       let depBtn;
       if(b.depositDate && _depFmt && _depFmt!=='-'){
-        depBtn = `<button class="oev2 oev2-done" onclick="ordOpenPop(event,${pid},${b.id},'depositDate','입금일','${b.depositDate}','bill')">✅ ${_depFmt}<span class="oev2-day">${_depDf!=null?_depDf+'일전':''}</span></button>`;
+        depBtn = `<button class="oev2 oev2-done" onclick="ordOpenPop(event,${pid},${b.id},'depositDate','입금일','${b.depositDate}','bill')">✅ ${_depFmt}</button>`;
       } else if(isLate)  depBtn = `<button class="oev2 oev2-late" onclick="ordOpenPop(event,${pid},${b.id},'depositDate','입금일',null,'bill')">🔴 미입금<span class="oev2-day late">D+${since}</span></button>`;
       else if(isWarn)    depBtn = `<button class="oev2 oev2-warn" onclick="ordOpenPop(event,${pid},${b.id},'depositDate','입금일',null,'bill')">⚠️ 대기<span class="oev2-day warn">D+${since}</span></button>`;
       else               depBtn = `<button class="oev2 oev2-wait" onclick="ordOpenPop(event,${pid},${b.id},'depositDate','입금일',null,'bill')">미입금</button>`;
       const icon = isSpecial ? "🔖✨" : "🔖";
       const typeLabel = isSpecial
-        ? `<span style="color:#7c3aed;font-weight:700">${icon} 특별특허료</span>`
-        : `<span style="color:#be185d;font-weight:700">${icon} 특허료</span>`;
-      const docNoTxt = b.docNumber ? `<span style="font-size:10px;color:#9ca3af;display:block">${b.docNumber}</span>` : "";
+        ? `<span style="color:var(--purple);font-weight:700">${icon} 특별특허료</span>`
+        : `<span style="color:var(--indigo);font-weight:700">${icon} 특허료</span>`;
+      const docNoTxt = b.docNumber ? `<span style="font-size:10px;color:var(--gray-400);display:block">${b.docNumber}</span>` : "";
       const issuedTxt = b.issuedDate ? `발송 ${issuedFmt}${issuedDf!=null?` (D+${issuedDf})`:""}` : "";
+      const amtColor = isSpecial ? "var(--purple)" : "var(--indigo)";
       return `<div class="ord-flex-row" style="display:flex;align-items:center;gap:8px;padding:7px 14px;border-bottom:1px solid var(--gray-100);font-size:11px">
-        <span style="flex-shrink:0;width:20px;background:${headerBg};color:${headerText};border-radius:4px;padding:1px 4px;font-size:10px;font-weight:700;text-align:center">${i+1}</span>
-        <span style="flex-shrink:0;width:100px">${typeLabel}${docNoTxt}<span style="font-size:10px;color:#9ca3af;display:block">${issuedTxt}</span></span>
-        <span style="flex-shrink:0;width:88px;text-align:right"><b style="color:${isSpecial?'#7c3aed':'#be185d'}">${ordFmtN(b.amount)}원</b></span>
+        <span style="flex-shrink:0;width:20px;background:${accentBg};color:${accent};border-radius:4px;padding:1px 4px;font-size:10px;font-weight:700;text-align:center">${i+1}</span>
+        <span style="flex-shrink:0;width:100px">${typeLabel}${docNoTxt}<span style="font-size:10px;color:var(--gray-400);display:block">${issuedTxt}</span></span>
+        <span style="flex-shrink:0;width:88px;text-align:right"><b style="color:${amtColor}">${ordFmtN(b.amount)}원</b></span>
         <span style="flex:1;min-width:0;padding-left:8px;border-left:1px solid var(--gray-200)">${invBtn}</span>
         <span style="flex:1;min-width:0;padding-left:8px;border-left:1px solid var(--gray-200)">${depBtn}</span>
         <span style="flex-shrink:0;width:56px;display:flex;gap:3px;justify-content:center">
@@ -4270,15 +4286,15 @@ function renderPatentRoyalty(){
         </span>
       </div>`;
     }).join("");
-    const gTotal = g.bills.reduce((s,b)=>s+(Number(b.amount)||0),0);
-    const gPaid  = g.bills.filter(b=>b.status==="수금완료").reduce((s,b)=>s+(Number(b.amount)||0),0);
-    html += `<div style="margin-bottom:12px;background:#fff;border:1px solid #f3d6e4;border-radius:10px;overflow:hidden">
-      <div style="display:flex;align-items:center;gap:8px;padding:8px 14px;background:${headerBg};border-bottom:1px solid ${headerColor}">
-        <strong style="font-size:12.5px;color:${headerText}">${g.customerName||"(고객 미상)"} · ${g.aptName||""}</strong>
-        <span style="font-size:10px;color:#9ca3af">${g.constructionName||""}</span>
-        <span style="margin-left:auto;font-size:10.5px;color:#6b7280">미수 <b style="color:#dc2626">${ordFmtN(gTotal-gPaid)}원</b> · 수금 <b style="color:#16a34a">${ordFmtN(gPaid)}원</b></span>
+    const gTotal = sum(g.bills);
+    const gPaid  = sum(g.bills.filter(b=>b.status==="수금완료"));
+    html += `<div style="margin-bottom:12px;background:#fff;border:1px solid ${accentBd};border-radius:10px;overflow:hidden">
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 14px;background:${accentBg};border-bottom:1px solid ${accentBd}">
+        <strong style="font-size:12.5px;color:${accent}">${g.customerName||"(고객 미상)"} · ${g.aptName||""}</strong>
+        <span style="font-size:10px;color:var(--gray-400)">${g.constructionName||""}</span>
+        <span style="margin-left:auto;font-size:10.5px;color:var(--gray-600)">미수 <b style="color:var(--purple)">${ordFmtN(gTotal-gPaid)}원</b> · 수금 <b style="color:var(--green)">${ordFmtN(gPaid)}원</b></span>
       </div>
-      <div style="display:flex;align-items:center;gap:8px;padding:4px 14px;background:#fafafa;font-size:9.5px;font-weight:700;color:#9ca3af;border-bottom:1px solid var(--gray-100)">
+      <div style="display:flex;align-items:center;gap:8px;padding:4px 14px;background:var(--gray-50);font-size:9.5px;font-weight:700;color:var(--gray-400);border-bottom:1px solid var(--gray-100)">
         <span style="flex-shrink:0;width:20px">#</span>
         <span style="flex-shrink:0;width:100px">구분 / 공문번호</span>
         <span style="flex-shrink:0;width:88px;text-align:right">청구금액</span>
