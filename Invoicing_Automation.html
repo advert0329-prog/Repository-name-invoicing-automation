@@ -389,7 +389,7 @@ input[type="url"], input[type="password"]{
   <button class="tab-btn" onclick="showTab(2)">자재 주문</button>
   <button class="tab-btn" onclick="showTab(3)" style="display:none" aria-hidden="true" tabindex="-1">청구서 발행 (사용 중지)</button>
   <button class="tab-btn" onclick="showTab(4)">미수금 관리</button>
-  <button class="tab-btn" onclick="showTab(5)">발행 이력</button>
+  <button class="tab-btn" onclick="showTab(5)">🔖 특허료 관리</button>
   <button class="tab-btn" onclick="showTab(6)">📥 엑셀 가져오기</button>
   <button class="tab-btn" id="tab-btn-7" onclick="showTab(7)" style="color:#16a34a">✅ 완료된 현장</button>
   <button class="tab-btn" style="color:#16a34a;font-weight:600" onclick="downloadMasterExcel()">📊 엑셀 다운로드</button>
@@ -959,7 +959,7 @@ function showTab(i){
 }
 
 function renderPage(i){
-  const fns=[renderDashboard,renderProjects,renderOrders,renderBilling,renderUnpaid,renderHistory,renderExcelImport,renderCompleted,renderSettings];
+  const fns=[renderDashboard,renderProjects,renderOrders,renderBilling,renderUnpaid,renderPatentRoyalty,renderExcelImport,renderCompleted,renderSettings];
   if(fns[i])fns[i]();
 }
 
@@ -1816,53 +1816,15 @@ function ordBillSectionHTML(p){
   if(projectBills.length === 0){
     body = `<div style="padding:10px 14px;font-size:11px;color:#9ca3af">아직 발행된 ${getPatentRate(p)<0.02 && getPatentRate(p)>0 ? "특별 특허료" : "특허료"} 청구가 없습니다.</div>`;
   } else {
-    const billRows = projectBills.map((b,i) => {
-      const isSpecial = b.type === "특별특허료";
-      const since = b.invoiceDate && !b.depositDate ? ordDfToday(b.invoiceDate) : null;
-      const isLate = since !== null && since >= 30;
-      const isWarn = since !== null && since >= 14 && since < 30;
-      const _invFmt = ordFmt(b.invoiceDate), _invDf = ordDfToday(b.invoiceDate);
-      const _depFmt = ordFmt(b.depositDate), _depDf = ordDfToday(b.depositDate);
-      const issuedFmt = ordFmt(b.issuedDate), issuedDf = ordDfToday(b.issuedDate);
-
-      const invBtn = b.invoiceDate && _invFmt && _invFmt!=='-'
-        ? `<button class="oev2 oev2-done" onclick="ordOpenPop(event,${p.id},${b.id},'invoiceDate','계산서발행일','${b.invoiceDate}','bill')">✅ ${_invFmt}<span class="oev2-day">${_invDf!=null?_invDf+'일전':''}</span></button>`
-        : `<button class="oev2 oev2-wait" onclick="ordOpenPop(event,${p.id},${b.id},'invoiceDate','계산서발행일',null,'bill')">미발행</button>`;
-      let depBtn;
-      if(b.depositDate && _depFmt && _depFmt!=='-'){
-        depBtn = `<button class="oev2 oev2-done" onclick="ordOpenPop(event,${p.id},${b.id},'depositDate','입금일','${b.depositDate}','bill')">✅ ${_depFmt}<span class="oev2-day">${_depDf!=null?_depDf+'일전':''}</span></button>`;
-      } else if(isLate)  depBtn = `<button class="oev2 oev2-late" onclick="ordOpenPop(event,${p.id},${b.id},'depositDate','입금일',null,'bill')">🔴 미입금<span class="oev2-day late">D+${since}</span></button>`;
-      else if(isWarn)    depBtn = `<button class="oev2 oev2-warn" onclick="ordOpenPop(event,${p.id},${b.id},'depositDate','입금일',null,'bill')">⚠️ 대기<span class="oev2-day warn">D+${since}</span></button>`;
-      else               depBtn = `<button class="oev2 oev2-wait" onclick="ordOpenPop(event,${p.id},${b.id},'depositDate','입금일',null,'bill')">미입금</button>`;
-
-      const icon = isSpecial ? "🔖✨" : "🔖";
-      const typeLabel = isSpecial
-        ? `<span style="color:#7c3aed;font-weight:700">${icon} 특별특허료</span>`
-        : `<span style="color:#be185d;font-weight:700">${icon} 특허료</span>`;
-      const docNoTxt = b.docNumber ? `<span style="font-size:10px;color:#9ca3af;display:block">${b.docNumber}</span>` : "";
-      const issuedTxt = b.issuedDate ? `발송 ${issuedFmt}${issuedDf!=null?` (D+${issuedDf})`:""}` : "";
-
-      return `<div class="ord-flex-row" style="display:flex;align-items:center;gap:8px;padding:7px 14px;border-bottom:1px solid var(--gray-100);font-size:11px">
-        <span style="flex-shrink:0;width:20px;background:${headerBg};color:${headerText};border-radius:4px;padding:1px 4px;font-size:10px;font-weight:700;text-align:center">${i+1}</span>
-        <span style="flex-shrink:0;width:100px">${typeLabel}${docNoTxt}<span style="font-size:10px;color:#9ca3af;display:block">${issuedTxt}</span></span>
-        <span style="flex-shrink:0;width:88px;text-align:right"><b style="color:${isSpecial?'#7c3aed':'#be185d'}">${ordFmtN(b.amount)}원</b></span>
-        <span style="flex:1;min-width:0;padding-left:8px;border-left:1px solid var(--gray-200)">${invBtn}</span>
-        <span style="flex:1;min-width:0;padding-left:8px;border-left:1px solid var(--gray-200)">${depBtn}</span>
-        <span style="flex-shrink:0;width:56px;display:flex;gap:3px;justify-content:center">
-          <button class="btn btn-gray btn-sm" style="padding:2px 5px;font-size:10px" title="독촉 메일" onclick="openDunningEmail(${b.id});event.stopPropagation()">✉️</button>
-          <button class="btn btn-red btn-sm"  style="padding:2px 5px;font-size:10px" title="발행취소" onclick="cancelBill(${b.id});event.stopPropagation()">✕</button>
-        </span>
-      </div>`;
-    }).join("");
-    const totalAmt = projectBills.reduce((s,b)=>s+(Number(b.amount)||0),0);
-    const paidAmt  = projectBills.filter(b=>b.status==="수금완료").reduce((s,b)=>s+(Number(b.amount)||0),0);
+    // [관리만 이전] 발행 건 상세 관리(계산서·입금·취소·독촉)는 '특허료 관리' 탭으로 이동. 여기선 요약 + 탭 링크만.
+    const totalAmt  = projectBills.reduce((s,b)=>s+(Number(b.amount)||0),0);
+    const paidAmt   = projectBills.filter(b=>b.status==="수금완료").reduce((s,b)=>s+(Number(b.amount)||0),0);
     const unpaidAmt = totalAmt - paidAmt;
-    body = billRows + `<div style="display:flex;align-items:center;gap:8px;padding:5px 14px;background:var(--gray-50);font-size:11px;border-top:1px solid var(--gray-200)">
-      <span style="flex-shrink:0;width:20px"></span>
-      <span style="flex-shrink:0;width:100px;font-weight:700;color:var(--gray-600)">합계</span>
-      <span style="flex-shrink:0;width:88px;text-align:right;font-weight:700;color:${headerText}">${ordFmtN(totalAmt)}원</span>
-      <span style="flex:2;padding-left:8px;font-size:10px;color:#6b7280">미수 <b style="color:#dc2626">${ordFmtN(unpaidAmt)}원</b> · 수금 <b style="color:#16a34a">${ordFmtN(paidAmt)}원</b></span>
-      <span style="flex-shrink:0;width:56px"></span>
+    body = `<div style="display:flex;align-items:center;gap:8px;padding:9px 14px;font-size:11px;flex-wrap:wrap">
+      <span style="color:#9d174d;font-weight:700">🔖 발행 ${projectBills.length}건</span>
+      <span style="color:#6b7280">총 <b>${ordFmtN(totalAmt)}원</b></span>
+      <span style="color:#6b7280">· 미수 <b style="color:#dc2626">${ordFmtN(unpaidAmt)}원</b> · 수금 <b style="color:#16a34a">${ordFmtN(paidAmt)}원</b></span>
+      <button onclick="showTab(5);event.stopPropagation()" style="margin-left:auto;padding:3px 10px;font-size:10px;border:1px solid #fbcfe8;border-radius:6px;background:#fdf2f8;color:#9d174d;cursor:pointer;font-family:inherit;font-weight:600">특허료 관리 탭 →</button>
     </div>`;
   }
 
@@ -1880,13 +1842,9 @@ function ordBillSectionHTML(p){
   }
 
   return `<div class="bill-inner2" style="margin-left:30px;border-left:3px solid ${headerColor};margin-top:10px;background:#fff;border-radius:0 8px 8px 0;overflow:hidden">
-    <div style="display:flex;align-items:center;gap:8px;padding:5px 14px;background:${headerBg};font-size:10px;font-weight:700;color:${headerText};border-bottom:1px solid ${headerColor}">
-      <span style="flex-shrink:0;width:20px">🔖</span>
-      <span style="flex-shrink:0;width:100px">구분 / 공문번호</span>
-      <span style="flex-shrink:0;width:88px;text-align:right">청구금액</span>
-      <span style="flex:1;padding-left:8px;border-left:1px solid ${headerColor}">🧾 계산서발행일</span>
-      <span style="flex:1;padding-left:8px;border-left:1px solid ${headerColor}">💳 입금일</span>
-      <span style="flex-shrink:0;width:56px;text-align:center">관리</span>
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 14px;background:${headerBg};font-size:10px;font-weight:700;color:${headerText};border-bottom:1px solid ${headerColor}">
+      <span>🔖 특허료 청구</span>
+      <span style="margin-left:auto;font-weight:500;color:#b08aa0">상세 관리는 특허료 관리 탭</span>
     </div>
     ${body}
     ${issueBtn}
@@ -2677,7 +2635,7 @@ function ordRefreshIssueUI(p, isConsulting, isNoPatent){
 
   if(existingBill){
     banner.style.display = "block";
-    banner.innerHTML = `⚠️ 이 현장은 <b>${existingBill.issuedDate}</b>에 이미 ${existingBill.type||'특허료'} 청구가 발행되었습니다 (${fmtNum(existingBill.amount)}원)${existingBill.docNumber?` · <b>${existingBill.docNumber}</b>`:''}.<br>재발행하시려면 <b>발행 이력 탭</b>에서 기존 건을 먼저 취소해주세요.`;
+    banner.innerHTML = `⚠️ 이 현장은 <b>${existingBill.issuedDate}</b>에 이미 ${existingBill.type||'특허료'} 청구가 발행되었습니다 (${fmtNum(existingBill.amount)}원)${existingBill.docNumber?` · <b>${existingBill.docNumber}</b>`:''}.<br>재발행하시려면 <b>특허료 관리 탭</b>에서 기존 건을 먼저 취소해주세요.`;
     issueBtn.disabled = true;
     issueBtn.style.opacity = "0.45";
     issueBtn.style.cursor = "not-allowed";
@@ -2798,7 +2756,7 @@ async function ordIssuePatentBill(){
   // 재발행 방지 (UI에서도 막지만 안전장치로 한번 더) — 일반+특별 모두 체크
   const existing = allBills.find(b => b.projectId === pid && isPatentBillType(b.type));
   if(existing){
-    alert(`이미 ${existing.issuedDate}에 ${existing.type||'특허료'} 청구가 발행되었습니다.\n재발행하시려면 발행 이력 탭에서 기존 건을 먼저 취소해주세요.`);
+    alert(`이미 ${existing.issuedDate}에 ${existing.type||'특허료'} 청구가 발행되었습니다.\n재발행하시려면 특허료 관리 탭에서 기존 건을 먼저 취소해주세요.`);
     return;
   }
 
@@ -4218,6 +4176,123 @@ function jumpToOrderAndExpand(pid){
 }
 
 // ── 발행 이력 ──
+// ════════════════════════════════════════════
+// [특허료 관리 탭] allBills(특허/특별특허) 전역 관리 — 구 '발행 이력' 탭(slot 5) 대체
+//   · 발행(생성)은 자재주문 탭에 유지 (자재 누계 종속 트리거)
+//   · 여기선 계산서발행 / 입금 / 독촉 / 발행취소만 관리 ("관리만 이전")
+// ════════════════════════════════════════════
+let _patentFilter = "all";  // all | unpaid | paid
+
+function setPatentFilter(f){
+  _patentFilter = f || "all";
+  if (currentTab === 5) renderPage(currentTab);
+}
+
+function renderPatentRoyalty(){
+  const all = (allBills||[]).filter(b => isPatentBillType(b.type));
+  if (all.length === 0){
+    document.getElementById("page-5").innerHTML =
+      `<div style="text-align:center;padding:60px 0;color:#9ca3af"><div style="font-size:40px">🔖</div><p style="margin-top:12px">발행된 특허료 청구가 없습니다.</p><p style="font-size:11px;margin-top:6px;color:#c4b5cd">자재 주문 탭에서 특허료 요청서를 발행하면 여기서 관리됩니다.</p></div>`;
+    return;
+  }
+
+  const totalAmt   = all.reduce((s,b)=>s+(Number(b.amount)||0),0);
+  const paidList   = all.filter(b=>b.status==="수금완료");
+  const paidAmt    = paidList.reduce((s,b)=>s+(Number(b.amount)||0),0);
+  const unpaidList = all.filter(b=>b.status!=="수금완료");
+  const unpaidAmt  = totalAmt - paidAmt;
+
+  let view = all;
+  if (_patentFilter === "unpaid") view = unpaidList;
+  else if (_patentFilter === "paid") view = paidList;
+
+  const fBtn = (key,label,n) =>
+    `<button onclick="setPatentFilter('${key}')" style="padding:5px 12px;border-radius:7px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;border:1px solid ${_patentFilter===key?'#be185d':'#e5e7eb'};background:${_patentFilter===key?'#fdf2f8':'#fff'};color:${_patentFilter===key?'#9d174d':'#6b7280'}">${label} ${n}</button>`;
+
+  let html = `<p class="sec-title">🔖 특허료 관리</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;padding:12px 14px;background:#fdf2f8;border:1px solid #fbcfe8;border-radius:10px">
+      <div style="flex:1;min-width:110px"><div style="font-size:10px;color:#9d174d;font-weight:700">총 발행</div><div style="font-size:15px;font-weight:800;color:#9d174d">${fmtNum(totalAmt)} <span style="font-size:11px;font-weight:600;color:#be185d">(${all.length}건)</span></div></div>
+      <div style="flex:1;min-width:110px"><div style="font-size:10px;color:#dc2626;font-weight:700">미수</div><div style="font-size:15px;font-weight:800;color:#dc2626">${fmtNum(unpaidAmt)} <span style="font-size:11px;font-weight:600">(${unpaidList.length}건)</span></div></div>
+      <div style="flex:1;min-width:110px"><div style="font-size:10px;color:#16a34a;font-weight:700">수금완료</div><div style="font-size:15px;font-weight:800;color:#16a34a">${fmtNum(paidAmt)} <span style="font-size:11px;font-weight:600">(${paidList.length}건)</span></div></div>
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:12px">${fBtn('all','전체',all.length)}${fBtn('unpaid','미수',unpaidList.length)}${fBtn('paid','수금완료',paidList.length)}</div>`;
+
+  if (view.length === 0){
+    html += `<div style="text-align:center;padding:30px 0;color:#9ca3af;font-size:12px">해당 조건의 특허료 청구가 없습니다.</div>`;
+    document.getElementById("page-5").innerHTML = html;
+    return;
+  }
+
+  // 현장(projectId)별 그룹
+  const groups = {};
+  view.forEach(b => {
+    const k = (b.projectId != null) ? ("p"+b.projectId) : ("x"+(b.customerName||"")+(b.aptName||""));
+    if(!groups[k]) groups[k] = { projectId:b.projectId, customerName:b.customerName, aptName:b.aptName, constructionName:b.constructionName, bills:[] };
+    groups[k].bills.push(b);
+  });
+
+  const headerBg="#fdf2f8", headerText="#9d174d", headerColor="#fbcfe8";
+
+  Object.values(groups).forEach(g => {
+    const rows = g.bills.map((b,i) => {
+      const isSpecial = b.type==="특별특허료";
+      const since = b.invoiceDate && !b.depositDate ? ordDfToday(b.invoiceDate) : null;
+      const isLate = since!==null && since>=30;
+      const isWarn = since!==null && since>=14 && since<30;
+      const _invFmt=ordFmt(b.invoiceDate), _invDf=ordDfToday(b.invoiceDate);
+      const _depFmt=ordFmt(b.depositDate), _depDf=ordDfToday(b.depositDate);
+      const issuedFmt=ordFmt(b.issuedDate), issuedDf=ordDfToday(b.issuedDate);
+      const pid=b.projectId;
+      const invBtn = b.invoiceDate && _invFmt && _invFmt!=='-'
+        ? `<button class="oev2 oev2-done" onclick="ordOpenPop(event,${pid},${b.id},'invoiceDate','계산서발행일','${b.invoiceDate}','bill')">✅ ${_invFmt}<span class="oev2-day">${_invDf!=null?_invDf+'일전':''}</span></button>`
+        : `<button class="oev2 oev2-wait" onclick="ordOpenPop(event,${pid},${b.id},'invoiceDate','계산서발행일',null,'bill')">미발행</button>`;
+      let depBtn;
+      if(b.depositDate && _depFmt && _depFmt!=='-'){
+        depBtn = `<button class="oev2 oev2-done" onclick="ordOpenPop(event,${pid},${b.id},'depositDate','입금일','${b.depositDate}','bill')">✅ ${_depFmt}<span class="oev2-day">${_depDf!=null?_depDf+'일전':''}</span></button>`;
+      } else if(isLate)  depBtn = `<button class="oev2 oev2-late" onclick="ordOpenPop(event,${pid},${b.id},'depositDate','입금일',null,'bill')">🔴 미입금<span class="oev2-day late">D+${since}</span></button>`;
+      else if(isWarn)    depBtn = `<button class="oev2 oev2-warn" onclick="ordOpenPop(event,${pid},${b.id},'depositDate','입금일',null,'bill')">⚠️ 대기<span class="oev2-day warn">D+${since}</span></button>`;
+      else               depBtn = `<button class="oev2 oev2-wait" onclick="ordOpenPop(event,${pid},${b.id},'depositDate','입금일',null,'bill')">미입금</button>`;
+      const icon = isSpecial ? "🔖✨" : "🔖";
+      const typeLabel = isSpecial
+        ? `<span style="color:#7c3aed;font-weight:700">${icon} 특별특허료</span>`
+        : `<span style="color:#be185d;font-weight:700">${icon} 특허료</span>`;
+      const docNoTxt = b.docNumber ? `<span style="font-size:10px;color:#9ca3af;display:block">${b.docNumber}</span>` : "";
+      const issuedTxt = b.issuedDate ? `발송 ${issuedFmt}${issuedDf!=null?` (D+${issuedDf})`:""}` : "";
+      return `<div class="ord-flex-row" style="display:flex;align-items:center;gap:8px;padding:7px 14px;border-bottom:1px solid var(--gray-100);font-size:11px">
+        <span style="flex-shrink:0;width:20px;background:${headerBg};color:${headerText};border-radius:4px;padding:1px 4px;font-size:10px;font-weight:700;text-align:center">${i+1}</span>
+        <span style="flex-shrink:0;width:100px">${typeLabel}${docNoTxt}<span style="font-size:10px;color:#9ca3af;display:block">${issuedTxt}</span></span>
+        <span style="flex-shrink:0;width:88px;text-align:right"><b style="color:${isSpecial?'#7c3aed':'#be185d'}">${ordFmtN(b.amount)}원</b></span>
+        <span style="flex:1;min-width:0;padding-left:8px;border-left:1px solid var(--gray-200)">${invBtn}</span>
+        <span style="flex:1;min-width:0;padding-left:8px;border-left:1px solid var(--gray-200)">${depBtn}</span>
+        <span style="flex-shrink:0;width:56px;display:flex;gap:3px;justify-content:center">
+          <button class="btn btn-gray btn-sm" style="padding:2px 5px;font-size:10px" title="독촉 메일" onclick="openDunningEmail(${b.id});event.stopPropagation()">✉️</button>
+          <button class="btn btn-red btn-sm"  style="padding:2px 5px;font-size:10px" title="발행취소" onclick="cancelBill(${b.id});event.stopPropagation()">✕</button>
+        </span>
+      </div>`;
+    }).join("");
+    const gTotal = g.bills.reduce((s,b)=>s+(Number(b.amount)||0),0);
+    const gPaid  = g.bills.filter(b=>b.status==="수금완료").reduce((s,b)=>s+(Number(b.amount)||0),0);
+    html += `<div style="margin-bottom:12px;background:#fff;border:1px solid #f3d6e4;border-radius:10px;overflow:hidden">
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 14px;background:${headerBg};border-bottom:1px solid ${headerColor}">
+        <strong style="font-size:12.5px;color:${headerText}">${g.customerName||"(고객 미상)"} · ${g.aptName||""}</strong>
+        <span style="font-size:10px;color:#9ca3af">${g.constructionName||""}</span>
+        <span style="margin-left:auto;font-size:10.5px;color:#6b7280">미수 <b style="color:#dc2626">${ordFmtN(gTotal-gPaid)}원</b> · 수금 <b style="color:#16a34a">${ordFmtN(gPaid)}원</b></span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;padding:4px 14px;background:#fafafa;font-size:9.5px;font-weight:700;color:#9ca3af;border-bottom:1px solid var(--gray-100)">
+        <span style="flex-shrink:0;width:20px">#</span>
+        <span style="flex-shrink:0;width:100px">구분 / 공문번호</span>
+        <span style="flex-shrink:0;width:88px;text-align:right">청구금액</span>
+        <span style="flex:1;padding-left:8px">🧾 계산서발행일</span>
+        <span style="flex:1;padding-left:8px">💳 입금일</span>
+        <span style="flex-shrink:0;width:56px;text-align:center">관리</span>
+      </div>
+      ${rows}
+    </div>`;
+  });
+
+  document.getElementById("page-5").innerHTML = html;
+}
+
 function renderHistory(){
   if(allBills.length===0){
     document.getElementById("page-5").innerHTML=`<div style="text-align:center;padding:60px 0;color:#9ca3af"><div style="font-size:40px">📄</div><p style="margin-top:12px">발행된 청구서가 없습니다.</p></div>`;
@@ -7147,7 +7222,7 @@ function buildStage3Mail(g) {
       "당사 ㈜넷폼알앤디는 귀사 자재 대금 미수금 관련하여 다음과 같이 정식 통지드립니다.\n\n" +
       _sitesBlock(g.sites) + _refundsBlock(g.refunds) + "\n\n" +
       "■ " + g.customerName + " 전체 미수금: " + _fmtKRW(g.totalUnpaid) + " (공급가액 기준, VAT 별도)\n" +
-      "※ 위 미수금은 최초 청구서 발행일 기준 90일을 경과한 건입니다.\n\n" +
+      "※ 위 미수금은 계산서 발행일 기준 90일을 경과한 건입니다.\n\n" +
       "당사의 1·2·2.5차 안내에도 불구하고 입금이 이루어지지 않아 부득이하게 본 통지를 발송합니다.\n" +
       "본 통지 수령 후 7일 이내에 입금 예정일과 입금 방식을 서면(이메일 또는 공문)으로 회신하여 주시기 바랍니다.\n\n" +
       "회신이 없거나 미이행될 경우 다음 조치가 순차적으로 집행됩니다.\n\n" +
@@ -7270,7 +7345,7 @@ function buildStage3Mail_C(g) {
       "당사 ㈜넷폼알앤디는 귀사 특허료 미수금 관련하여 다음과 같이 정식 통지드립니다.\n\n" +
       _sitesBlockC(g.sites) + _refundsBlock(g.refunds) + "\n\n" +
       "■ " + g.customerName + " 전체 미수금: " + _fmtKRW(g.totalUnpaid) + " (공급가액 기준, VAT 별도)\n" +
-      "※ 위 미수금은 최초 청구서 발행일 기준 90일을 경과한 건입니다.\n\n" +
+      "※ 위 미수금은 계산서 발행일 기준 90일을 경과한 건입니다.\n\n" +
       "당사의 1·2·2.5차 안내에도 불구하고 입금이 이루어지지 않아 부득이하게 본 통지를 발송합니다.\n" +
       "본 통지 수령 후 7일 이내에 입금 예정일과 입금 방식을 서면(이메일 또는 공문)으로 회신하여 주시기 바랍니다.\n\n" +
       "회신이 없거나 미이행될 경우 다음 조치가 순차적으로 집행됩니다.\n\n" +
@@ -7295,8 +7370,20 @@ function canSendStage3MailC(g){
 // 데이터 수집기: projects/allBills → 업체 그룹 변환
 // 음수 환불은 group.refunds에 분리 / 순환불 업체 자동 제외
 // ═══════════════════════════════════════════════
+// [미수경과일] 계산서 발행일 기준 달력일자 차이.
+// new Date 파싱 시 섞일 수 있는 시각(time) 성분을 제거해 off-by-one 방지.
+function _daysOverdueCal(refDate, itemDate){
+  const a = new Date(refDate), b = new Date(itemDate);
+  if (isNaN(a.getTime()) || isNaN(b.getTime())) return 0;
+  const ua = Date.UTC(a.getFullYear(), a.getMonth(), a.getDate());
+  const ub = Date.UTC(b.getFullYear(), b.getMonth(), b.getDate());
+  return Math.round((ua - ub) / 86400000);
+}
 function collectUnpaidByCustomer(referenceDate) {
   const ref = referenceDate ? new Date(referenceDate) : new Date();
+  // [방향 A] 경과일 기준일 = 실제 현재일자(미리보기=오늘 / 발송=발송 시점).
+  // ref(조회월)는 당월·이전미수 분류와 필터에만 사용.
+  const asOf = new Date();
   const prevMonthDate = new Date(ref);
   prevMonthDate.setMonth(prevMonthDate.getMonth() - 1);
   const prevYear  = prevMonthDate.getFullYear();
@@ -7339,7 +7426,7 @@ function collectUnpaidByCustomer(referenceDate) {
       // [추가] 항목별 분리 보존
       s.newItems.push({ issuedDate:dateStr, amount });
     } else {
-      s.previousItems.push({ issuedDate:dateStr, amount, daysOverdue:Math.floor((ref-d)/86400000) });
+      s.previousItems.push({ issuedDate:dateStr, amount, daysOverdue:_daysOverdueCal(asOf,d) });
     }
     g.totalUnpaid += amount;
   };
@@ -7378,6 +7465,9 @@ function collectUnpaidByCustomer(referenceDate) {
 // ═══════════════════════════════════════════════
 function _buildUnpaidGroup(track, referenceDate){
   const ref = referenceDate ? new Date(referenceDate) : new Date();
+  // [방향 A] 경과일 기준일 = 실제 현재일자(미리보기=오늘 / 발송=발송 시점).
+  // ref(조회월)는 당월·이전미수 분류와 필터에만 사용.
+  const asOf = new Date();
   const prevMonthDate = new Date(ref);
   prevMonthDate.setMonth(prevMonthDate.getMonth() - 1);
   const prevYear  = prevMonthDate.getFullYear();
@@ -7437,7 +7527,7 @@ function _buildUnpaidGroup(track, referenceDate){
     } else {
       s.previousItems.push({
         issuedDate: dateStr, amount,
-        daysOverdue: Math.floor((ref-d)/86400000),
+        daysOverdue: _daysOverdueCal(asOf, d),
         itemType: meta.itemType || meta.item || "",
         docNumber: meta.docNumber || ""
       });
