@@ -1033,32 +1033,33 @@ function renderDashboard(){
     <div class="stat-card"><div class="label">진행 중</div><div class="value v-blue">${inProgress}건</div></div>
     <div class="stat-card"><div class="label">완료</div><div class="value v-green">${doneSites}건</div></div>
   </div>
-  <div style="background:#fff;border:1px solid var(--gray-200);border-radius:12px;overflow:hidden;margin-bottom:14px">
-    <div style="display:grid;grid-template-columns:80px 1fr 1fr 1fr;background:var(--gray-50);font-size:11px;font-weight:700;color:var(--gray-600);padding:8px 14px;border-bottom:1px solid var(--gray-200)">
-      <span>구분</span><span style="text-align:right">매출(발행누계)</span><span style="text-align:right">수금완료</span><span style="text-align:right">미수</span>
-    </div>
-    <div style="display:grid;grid-template-columns:80px 1fr 1fr 1fr;font-size:12px;padding:9px 14px;border-bottom:1px solid var(--gray-100)">
-      <span style="font-weight:700;color:var(--indigo)">🧱 자재</span><span style="text-align:right;font-weight:700">${fmtNum(matRev)}</span><span style="text-align:right;color:var(--green)">${fmtNum(matPaid)}</span><span style="text-align:right;color:${matUnpaid>0?'var(--red)':'var(--gray-400)'};font-weight:700">${fmtNum(matUnpaid)}</span>
-    </div>
-    <div style="display:grid;grid-template-columns:80px 1fr 1fr 1fr;font-size:12px;padding:9px 14px;border-bottom:1px solid var(--gray-100)">
-      <span style="font-weight:700;color:var(--purple)">🔖 특허</span><span style="text-align:right;font-weight:700">${fmtNum(patRev)}</span><span style="text-align:right;color:var(--green)">${fmtNum(patPaid)}</span><span style="text-align:right;color:${patUnpaid>0?'var(--red)':'var(--gray-400)'};font-weight:700">${fmtNum(patUnpaid)}</span>
-    </div>
-    <div style="display:grid;grid-template-columns:80px 1fr 1fr 1fr;font-size:12px;padding:9px 14px;background:var(--gray-50);font-weight:800">
-      <span>합계</span><span style="text-align:right">${fmtNum(totRev)}</span><span style="text-align:right;color:var(--green)">${fmtNum(totPaid)}</span><span style="text-align:right;color:${totUnpaid>0?'var(--red)':'var(--gray-400)'}">${fmtNum(totUnpaid)}</span>
-    </div>
-  </div>
-  <p class="sec-title">📈 회수율 <span style="font-size:11px;color:#9ca3af;font-weight:400">(기한내: 자재 40일 · 특허 30일)</span></p>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px">
-    <div class="stat-card" style="text-align:left">
-      <div style="font-size:12px;font-weight:700;color:var(--indigo);margin-bottom:8px">🧱 자재대금</div>
+  <p class="sec-title">💰 매출 · 회수 현황 <span style="font-size:11px;color:#9ca3af;font-weight:400">(매출=계산서 발행 누계 · 기한내: 자재 40일/특허 30일)</span></p>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+    <div class="stat-card" style="text-align:left;padding:14px">
+      <div style="font-size:13px;font-weight:800;color:var(--indigo);margin-bottom:10px">🧱 자재대금</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;margin-bottom:12px;text-align:center">
+        <div><div style="font-size:10px;color:var(--gray-400)">매출</div><div style="font-size:13px;font-weight:700">${fmtNum(matRev)}</div></div>
+        <div><div style="font-size:10px;color:var(--gray-400)">수금</div><div style="font-size:13px;font-weight:700;color:var(--green)">${fmtNum(matPaid)}</div></div>
+        <div><div style="font-size:10px;color:var(--gray-400)">미수</div><div style="font-size:13px;font-weight:700;color:${matUnpaid>0?'var(--red)':'var(--gray-400)'}">${fmtNum(matUnpaid)}</div></div>
+      </div>
       ${dashGauge("누적 회수율", matCum, "—")}
       ${dashGauge("기한내 회수율 (40일)", matOnTime.rate, matOnTime.den>0?"—":"평가분 없음")}
     </div>
-    <div class="stat-card" style="text-align:left">
-      <div style="font-size:12px;font-weight:700;color:var(--purple);margin-bottom:8px">🔖 특허료</div>
+    <div class="stat-card" style="text-align:left;padding:14px">
+      <div style="font-size:13px;font-weight:800;color:var(--purple);margin-bottom:10px">🔖 특허료</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;margin-bottom:12px;text-align:center">
+        <div><div style="font-size:10px;color:var(--gray-400)">매출</div><div style="font-size:13px;font-weight:700">${fmtNum(patRev)}</div></div>
+        <div><div style="font-size:10px;color:var(--gray-400)">수금</div><div style="font-size:13px;font-weight:700;color:var(--green)">${fmtNum(patPaid)}</div></div>
+        <div><div style="font-size:10px;color:var(--gray-400)">미수</div><div style="font-size:13px;font-weight:700;color:${patUnpaid>0?'var(--red)':'var(--gray-400)'}">${fmtNum(patUnpaid)}</div></div>
+      </div>
       ${dashGauge("누적 회수율", patCum, "—")}
       ${dashGauge("기한내 회수율 (30일)", patOnTime.rate, patOnTime.den>0?"—":"평가분 없음")}
     </div>
+  </div>
+  <div style="display:flex;justify-content:flex-end;gap:18px;font-size:12px;color:var(--gray-600);margin-bottom:18px;padding:0 4px">
+    <span>합계 매출 <strong style="color:var(--gray-900)">${fmtNum(totRev)}</strong></span>
+    <span>수금 <strong style="color:var(--green)">${fmtNum(totPaid)}</strong></span>
+    <span>미수 <strong style="color:${totUnpaid>0?'var(--red)':'var(--gray-400)'}">${fmtNum(totUnpaid)}</strong></span>
   </div>
   <p class="sec-title">🏷️ 공사형태별 현황</p>
   <div class="grid-4" style="margin-bottom:20px">`;
@@ -1098,48 +1099,85 @@ function renderDashboard(){
       });
     }
   }
-  // ── 특허료 청구 대기 (준공일 경과 + 특허료 해당 + 미청구) ──
+  // ── [즉시 처리 필요] 공사이용안내서 미발송(좌) + 특허료 청구 대기(우) ──
   const patentPendingList = projects.filter(p => {
     if(p.status === "완료" || p.status === "유찰" || p.status === "취소") return false;
     const dl = daysLeft(p.expectedCompletionDate);
-    if(dl === null || dl >= 0) return false; // 준공일 미경과
+    if(dl === null || dl >= 0) return false;
     const b = calcBilling(p);
-    if(!b.hasPatent) return false; // 특허료 비해당
+    if(!b.hasPatent) return false;
     const alreadyIssued = allBills.some(b2 => b2.projectId === p.id && isPatentBillType(b2.type));
     return !alreadyIssued;
   });
-  html += `<p class="sec-title">🔖 특허료 청구 대기 <span style="font-size:11px;color:#9ca3af;font-weight:400">(준공일 경과 · 특허료 미청구)</span>`;
-  if(patentPendingList.length > 0) html += ` <span style="background:#fce7f3;color:#be185d;border-radius:999px;padding:1px 8px;font-size:12px;font-weight:700">${patentPendingList.length}건</span>`;
-  html += `</p>`;
-  if(patentPendingList.length === 0){
-    html += `<div class="info-box info-gray" style="text-align:center;padding:14px">특허료 청구 대기 현장이 없습니다.</div>`;
+  const guideUnsent = projects.filter(p =>
+    p.constructionType==="기술자재형" && p.bidConfirmDate && p.contactEmail && !p.guideSentDate
+  );
+
+  // 좌: 공사이용안내서 미발송
+  let guideInner = "";
+  if(guideUnsent.length===0){
+    guideInner = `<div style="text-align:center;padding:18px 10px;color:var(--gray-400);font-size:12px">✓ 미발송 건 없음</div>`;
+  } else {
+    guideUnsent.forEach(p=>{
+      guideInner += `<div class="card-sm" style="margin:0 0 8px 0;border-left:3px solid #7c3aed">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <div style="min-width:0">
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span class="badge b-purple">기술자재형</span><strong style="font-size:13px">${p.aptName||p.customerName}</strong></div>
+            <div style="font-size:11px;color:#6b7280;margin-top:2px">낙찰일 ${p.bidConfirmDate} · ${p.contactEmail}</div>
+          </div>
+          <button class="btn btn-sm" style="background:#7c3aed;color:#fff;white-space:nowrap;flex-shrink:0" onclick="openGuideEmail(${p.id})">📋 발송</button>
+        </div>
+      </div>`;
+    });
+  }
+
+  // 우: 특허료 청구 대기
+  let patentInner = "";
+  if(patentPendingList.length===0){
+    patentInner = `<div style="text-align:center;padding:18px 10px;color:var(--gray-400);font-size:12px">✓ 청구 대기 없음</div>`;
   } else {
     patentPendingList.forEach(p => {
       const b = calcBilling(p);
       const dl = daysLeft(p.expectedCompletionDate);
       const overdueDays = Math.abs(dl);
       const overdueColor = overdueDays >= 30 ? "var(--red)" : "#ea580c";
-      html += `<div class="card-sm" style="display:flex;justify-content:space-between;align-items:center;gap:10px;border-left:3px solid #be185d">
-        <div style="flex:1;min-width:0">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;flex-wrap:wrap">
-            <strong style="font-size:13px">${p.aptName || p.customerName}</strong>
-            <span style="font-size:11px;color:#6b7280">${p.aptName ? p.customerName : ""}</span>
-            ${badge(p.constructionType, typeColor(p.constructionType))}
+      patentInner += `<div class="card-sm" style="margin:0 0 8px 0;border-left:3px solid #be185d">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap">
+              <strong style="font-size:13px">${p.aptName || p.customerName}</strong>
+              ${badge(p.constructionType, typeColor(p.constructionType))}
+            </div>
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+              <span style="font-size:11px;font-weight:700;color:${overdueColor}">준공 D+${overdueDays}</span>
+              ${b.patentAmt > 0 ? (b.isSpecialPatent
+                ? `<span style="font-size:11px;background:#ede9fe;color:#7c3aed;border-radius:4px;padding:1px 6px;font-weight:600">✨특별 ${fmtNum(b.patentAmt)}</span>`
+                : `<span style="font-size:11px;background:#fce7f3;color:#be185d;border-radius:4px;padding:1px 6px;font-weight:600">${fmtNum(b.patentAmt)}</span>`) : ""}
+            </div>
           </div>
-          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-            <span style="font-size:11px;font-weight:700;color:${overdueColor}">준공 D+${overdueDays}</span>
-            <span style="font-size:11px;color:#6b7280">준공일 ${p.expectedCompletionDate}</span>
-            ${b.patentAmt > 0 ? (b.isSpecialPatent
-              ? `<span style="font-size:11px;background:#ede9fe;color:#7c3aed;border-radius:4px;padding:1px 6px;font-weight:600">✨ 특별특허료 ${fmtNum(b.patentAmt)}</span>`
-              : `<span style="font-size:11px;background:#fce7f3;color:#be185d;border-radius:4px;padding:1px 6px;font-weight:600">특허료 ${fmtNum(b.patentAmt)}</span>`) : ""}
-          </div>
-        </div>
-        <div style="text-align:right;flex-shrink:0">
-          <button class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none;padding:5px 11px;font-size:12px;font-weight:600;border-radius:6px;cursor:pointer" onclick="ordOpenBill(${p.id})">청구하기</button>
+          <button class="btn btn-sm" style="background:#be185d;color:#fff;border:none;padding:5px 11px;font-size:12px;font-weight:600;border-radius:6px;cursor:pointer;white-space:nowrap;flex-shrink:0" onclick="ordOpenBill(${p.id})">청구</button>
         </div>
       </div>`;
     });
   }
+
+  const guideCount = guideUnsent.length, patentCount = patentPendingList.length;
+  const totalAction = guideCount + patentCount;
+  html += `<p class="sec-title">⚡ 즉시 처리 필요${totalAction>0?` <span style="background:#fee2e2;color:#dc2626;border-radius:999px;padding:1px 8px;font-size:12px;font-weight:700">${totalAction}건</span>`:` <span style="background:#dcfce7;color:#16a34a;border-radius:999px;padding:1px 8px;font-size:12px;font-weight:700">없음</span>`}</p>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">
+    <div style="border:1.5px solid ${guideCount>0?'#c4b5fd':'var(--gray-200)'};border-radius:12px;overflow:hidden;background:#fff">
+      <div style="background:${guideCount>0?'#f5f3ff':'var(--gray-50)'};padding:9px 12px;font-size:12px;font-weight:700;color:#7c3aed;border-bottom:1px solid ${guideCount>0?'#ede9fe':'var(--gray-200)'};display:flex;justify-content:space-between;align-items:center">
+        <span>📋 공사이용안내서 미발송</span><span style="font-weight:800">${guideCount}건</span>
+      </div>
+      <div style="padding:10px">${guideInner}</div>
+    </div>
+    <div style="border:1.5px solid ${patentCount>0?'#fbcfe8':'var(--gray-200)'};border-radius:12px;overflow:hidden;background:#fff">
+      <div style="background:${patentCount>0?'#fdf2f8':'var(--gray-50)'};padding:9px 12px;font-size:12px;font-weight:700;color:#be185d;border-bottom:1px solid ${patentCount>0?'#fce7f3':'var(--gray-200)'};display:flex;justify-content:space-between;align-items:center">
+        <span>🔖 특허료 청구 대기</span><span style="font-weight:800">${patentCount}건</span>
+      </div>
+      <div style="padding:10px">${patentInner}</div>
+    </div>
+  </div>`;
 
   // ── 입금 지연 TOP 5 (자재+특허 통합, 계산서 발행 후 미입금 · 오래된 순) ──
   const overdueList = [];
@@ -1183,28 +1221,6 @@ function renderDashboard(){
     });
   }
 
-  // 기술자재형 공사이용안내서 미발송 알림
-  const guideUnsent = projects.filter(p=>
-    p.constructionType==="기술자재형" &&
-    p.bidConfirmDate &&
-    p.contactEmail &&
-    !p.guideSentDate
-  );
-  if(guideUnsent.length>0){
-    html+=`<p class="sec-title">📋 공사이용안내서 미발송 <span style="background:#fee2e2;color:#dc2626;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:700">${guideUnsent.length}건</span></p>`;
-    guideUnsent.forEach(p=>{
-      html+=`<div class="card-sm" style="display:flex;justify-content:space-between;align-items:center;border-left:3px solid #7c3aed">
-        <div>
-          <div style="display:flex;align-items:center;gap:6px">
-            <span class="badge b-purple">기술자재형</span>
-            <strong style="font-size:13px">${p.aptName||p.customerName}</strong>
-          </div>
-          <div style="font-size:11px;color:#6b7280;margin-top:2px">낙찰일: ${p.bidConfirmDate} · ${p.contactEmail}</div>
-        </div>
-        <button class="btn btn-sm" style="background:#7c3aed;color:#fff;white-space:nowrap" onclick="openGuideEmail(${p.id})">📋 안내서 발송</button>
-      </div>`;
-    });
-  }
   document.getElementById("page-0").innerHTML=html;
 }
 
