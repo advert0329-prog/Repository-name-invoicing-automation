@@ -2142,6 +2142,8 @@ function renderOrders(){
       <tbody>
       ${pageData.map(p=>{
         const c = ordCalc(p);
+        const patentIssued = allBills.some(b => b.projectId === p.id && isPatentBillType(b.type));
+        const patentPaid = allBills.some(b => b.projectId === p.id && isPatentBillType(b.type) && b.status === "수금완료");
         const exp = ordExpandedIds.has(p.id);
         const tcol = {기술자재형:"b-purple",자재판매형:"b-orange",컨설팅:"b-blue",타공법:"b-gray",기타:"b-green",공고:"b-gray"}[p.constructionType]||"b-gray";
         const endDate = p.expectedCompletionDate;
@@ -2160,7 +2162,11 @@ function renderOrders(){
           <td class="sc2" style="text-align:center">${ordPatentBadgeHTML(c,p.constructionType)}</td>
           <td class="sc2" style="text-align:center;font-size:11px;line-height:1.4">${endLabel}</td>
           <td class="sc2" style="text-align:center" onclick="event.stopPropagation()">
-            <button class="bill-btn2" style="padding:4px 8px" onclick="ordOpenBill(${p.id})">요청서</button>
+            ${patentPaid
+              ? `<button style="padding:4px 9px;background:var(--green-light);color:var(--green);border:1px solid #86efac;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap" onclick="showTab(5)" title="특허료 관리 탭에서 확인">✓ 수금완료</button>`
+              : patentIssued
+              ? `<button style="padding:4px 9px;background:var(--indigo-light);color:var(--indigo);border:1px solid #a5b4fc;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap" onclick="showTab(5)" title="특허료 관리 탭에서 확인">✓ 청구완료</button>`
+              : `<button class="bill-btn2" style="padding:4px 8px" onclick="ordOpenBill(${p.id})">요청서</button>`}
           </td>
         </tr>
         <tr class="order-sec2${exp?" open":""}" id="oos-${p.id}">
