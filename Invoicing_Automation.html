@@ -1027,12 +1027,20 @@ function renderDashboard(){
 
   const ctTypes=["공고","컨설팅","기술자재형","자재판매형","타공법","기타"];
   let html=`
-  <p class="sec-title">📊 현황 요약</p>
-  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">
+  <p class="sec-title">📊 현장 현황</p>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px">
     <div class="stat-card"><div class="label">전체 현장</div><div class="value v-indigo">${totalSites}건</div></div>
     <div class="stat-card"><div class="label">진행 중</div><div class="value v-blue">${inProgress}건</div></div>
     <div class="stat-card"><div class="label">완료</div><div class="value v-green">${doneSites}건</div></div>
   </div>
+  <div style="font-size:12px;font-weight:600;color:var(--gray-600);margin:0 2px 8px">공사형태별 분포</div>
+  <div class="grid-4" style="margin-bottom:20px">`;
+  ctTypes.forEach(ct=>{
+    const ps=projects.filter(p=>p.constructionType===ct);
+    html+=`<div class="stat-card" style="text-align:center">${badge(ct,typeColor(ct))}<div class="value v-indigo" style="margin-top:8px">${ps.length}건</div><div style="font-size:11px;color:#9ca3af">${fmtNum(ps.reduce((s,p)=>s+p.bidPrice,0))}</div></div>`;
+  });
+  html+=`</div>`;
+  html += `
   <p class="sec-title">💰 매출 · 회수 현황 <span style="font-size:11px;color:#9ca3af;font-weight:400">(매출=계산서 발행 누계 · 기한내: 자재 40일/특허 30일)</span></p>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
     <div class="stat-card" style="text-align:left;padding:14px">
@@ -1056,18 +1064,11 @@ function renderDashboard(){
       ${dashGauge("기한내 회수율 (30일)", patOnTime.rate, patOnTime.den>0?"—":"평가분 없음")}
     </div>
   </div>
-  <div style="display:flex;justify-content:flex-end;gap:18px;font-size:12px;color:var(--gray-600);margin-bottom:18px;padding:0 4px">
+  <div style="display:flex;justify-content:flex-end;gap:18px;font-size:12px;color:var(--gray-600);margin-bottom:20px;padding:0 4px">
     <span>합계 매출 <strong style="color:var(--gray-900)">${fmtNum(totRev)}</strong></span>
     <span>수금 <strong style="color:var(--green)">${fmtNum(totPaid)}</strong></span>
     <span>미수 <strong style="color:${totUnpaid>0?'var(--red)':'var(--gray-400)'}">${fmtNum(totUnpaid)}</strong></span>
-  </div>
-  <p class="sec-title">🏷️ 공사형태별 현황</p>
-  <div class="grid-4" style="margin-bottom:20px">`;
-  ctTypes.forEach(ct=>{
-    const ps=projects.filter(p=>p.constructionType===ct);
-    html+=`<div class="stat-card" style="text-align:center">${badge(ct,typeColor(ct))}<div class="value v-indigo" style="margin-top:8px">${ps.length}건</div><div style="font-size:11px;color:#9ca3af">${fmtNum(ps.reduce((s,p)=>s+p.bidPrice,0))}</div></div>`;
-  });
-  html+=`</div>`;
+  </div>`;
   if(projects.length===0){
     html+=`<div class="info-box info-blue" style="text-align:center;padding:20px">📥 <strong>엑셀 가져오기</strong> 탭에서 기존 데이터를 불러오거나 <strong>현장 관리</strong>에서 직접 등록하세요.</div>`;
   } else {
@@ -1179,43 +1180,64 @@ function renderDashboard(){
     </div>
   </div>`;
 
-  // ── 입금 지연 TOP 5 (자재+특허 통합, 계산서 발행 후 미입금 · 오래된 순) ──
-  const overdueList = [];
+  // ── 입금 지연 TOP 5 (현장별 합산 · 계산서 발행 후 미입금 · 오래된 순) ──
+  const overdueMap = {};
+  const pushOverdue = (key, apt, sub, item) => {
+    if(!overdueMap[key]) overdueMap[key] = { apt:apt, sub:sub, items:[], total:0, maxDf:-Infinity };
+    const g = overdueMap[key];
+    g.items.push(item); g.total += item.amount;
+    if(item.df!=null && item.df > g.maxDf) g.maxDf = item.df;
+  };
   projects.forEach(p => (p.orders||[]).forEach(o => {
     if(o.invoiceDate && !o.depositDate && Number(o.amount)>0){
-      overdueList.push({ kind:"자재", apt:(p.aptName||p.customerName), sub:(p.aptName?p.customerName:""), amount:Number(o.amount)||0, df:ordDfToday(o.invoiceDate), invoiceDate:o.invoiceDate, threshold:40 });
+      pushOverdue("P"+p.id, (p.aptName||p.customerName), (p.aptName?p.customerName:""), { kind:"자재", amount:Number(o.amount)||0, df:ordDfToday(o.invoiceDate), invoiceDate:o.invoiceDate, threshold:40 });
     }
   }));
   allBills.filter(b=>isPatentBillType(b.type)).forEach(b => {
     if(b.invoiceDate && !b.depositDate && Number(b.amount)>0){
-      overdueList.push({ kind:(b.type==="특별특허료"?"특별특허료":"특허료"), apt:(b.aptName||b.customerName), sub:(b.aptName?b.customerName:""), amount:Number(b.amount)||0, df:ordDfToday(b.invoiceDate), invoiceDate:b.invoiceDate, threshold:30 });
+      const key = (b.projectId!=null && b.projectId!=="") ? "P"+b.projectId : "C|"+(b.customerName||"")+"|"+(b.aptName||"");
+      pushOverdue(key, (b.aptName||b.customerName), (b.aptName?b.customerName:""), { kind:(b.type==="특별특허료"?"특별특허료":"특허료"), amount:Number(b.amount)||0, df:ordDfToday(b.invoiceDate), invoiceDate:b.invoiceDate, threshold:30 });
     }
   });
-  overdueList.sort((a,b)=> (b.df==null?-1:b.df) - (a.df==null?-1:a.df));
-  const overdueTop = overdueList.slice(0,5);
-  html += `<p class="sec-title">⏰ 입금 지연 TOP 5 <span style="font-size:11px;color:#9ca3af;font-weight:400">(계산서 발행 후 미입금 · 오래된 순)</span></p>`;
+  const overdueGroups = Object.values(overdueMap).sort((a,b)=> b.maxDf - a.maxDf);
+  const overdueTop = overdueGroups.slice(0,5);
+  html += `<p class="sec-title">⏰ 입금 지연 TOP 5 <span style="font-size:11px;color:#9ca3af;font-weight:400">(현장별 합산 · 오래된 순)</span></p>`;
   if(overdueTop.length===0){
     html += `<div class="info-box info-gray" style="text-align:center;padding:14px">계산서 발행 후 미입금 건이 없습니다.</div>`;
   } else {
-    overdueTop.forEach((it,i) => {
-      const over = it.df!=null && it.df >= it.threshold;
-      const dfColor = over ? "var(--red)" : (it.df!=null && it.df>=it.threshold-7 ? "#ea580c" : "var(--gray-600)");
-      const isMat = it.kind==="자재";
-      const kindColor = isMat ? "var(--indigo)" : "var(--purple)";
-      const kindBg = isMat ? "var(--indigo-light)" : "var(--purple-light)";
-      html += `<div class="card-sm" style="display:flex;justify-content:space-between;align-items:center;gap:10px;border-left:3px solid ${over?'var(--red)':'var(--gray-300)'}">
+    overdueTop.forEach((g,i) => {
+      const anyOver  = g.items.some(it => it.df!=null && it.df >= it.threshold);
+      const nearOver = g.items.some(it => it.df!=null && it.df >= it.threshold-7);
+      const dfColor  = anyOver ? "var(--red)" : (nearOver ? "#ea580c" : "var(--gray-600)");
+      const byKind = {};
+      g.items.forEach(it => { if(!byKind[it.kind]) byKind[it.kind]={cnt:0,sum:0}; byKind[it.kind].cnt++; byKind[it.kind].sum+=it.amount; });
+      const kindKeys = ["자재","특허","특별특허료"].filter(k=>byKind[k]);
+      const badgesHtml = kindKeys.map(k=>{
+        const isMat=k==="자재";
+        const col=isMat?"var(--indigo)":"var(--purple)";
+        const bg=isMat?"var(--indigo-light)":"var(--purple-light)";
+        return `<span style="font-size:10px;font-weight:700;color:${col};background:${bg};border-radius:4px;padding:1px 6px">${k}</span>`;
+      }).join("");
+      let subLine;
+      if(g.items.length===1){
+        const it=g.items[0];
+        subLine = `계산서 ${it.invoiceDate} · 기한 ${it.threshold}일`;
+      } else {
+        subLine = `미수 ${g.items.length}건 · ` + kindKeys.map(k=>`${k} ${byKind[k].cnt}건 ${fmtNum(byKind[k].sum)}`).join(" · ");
+      }
+      html += `<div class="card-sm" style="display:flex;justify-content:space-between;align-items:center;gap:10px;border-left:3px solid ${anyOver?'var(--red)':'var(--gray-300)'}">
         <div style="flex:1;min-width:0">
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;flex-wrap:wrap">
             <span style="font-size:11px;font-weight:800;color:var(--gray-400);width:16px">${i+1}</span>
-            <strong style="font-size:13px">${it.apt}</strong>
-            <span style="font-size:11px;color:#6b7280">${it.sub}</span>
-            <span style="font-size:10px;font-weight:700;color:${kindColor};background:${kindBg};border-radius:4px;padding:1px 6px">${it.kind}</span>
+            <strong style="font-size:13px">${g.apt}</strong>
+            <span style="font-size:11px;color:#6b7280">${g.sub}</span>
+            ${badgesHtml}
           </div>
-          <div style="font-size:11px;color:#6b7280;margin-left:22px">계산서 ${it.invoiceDate} · 기한 ${it.threshold}일</div>
+          <div style="font-size:11px;color:#6b7280;margin-left:22px">${subLine}</div>
         </div>
         <div style="text-align:right;flex-shrink:0">
-          <div style="font-weight:700;color:var(--gray-900)">${fmtNum(it.amount)}</div>
-          <div style="font-size:12px;font-weight:800;color:${dfColor}">D+${it.df!=null?it.df:'?'}${over?' 초과':''}</div>
+          <div style="font-weight:700;color:var(--gray-900)">${fmtNum(g.total)}</div>
+          <div style="font-size:12px;font-weight:800;color:${dfColor}">D+${g.maxDf>-Infinity?g.maxDf:'?'}${anyOver?' 초과':''}</div>
         </div>
       </div>`;
     });
