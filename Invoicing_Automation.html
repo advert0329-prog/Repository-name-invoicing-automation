@@ -976,18 +976,89 @@ function confirmBilling(pid){
 }
 
 function renderDashboard(){
-  const totalBid=projects.reduce((s,p)=>s+p.bidPrice,0);
-  const totalBilled=allBills.reduce((s,b)=>s+b.amount,0);
-  const unpaid=(allBills.filter(b=>b.status!=="수금완료").reduce((s,b)=>s+b.amount,0))+(projects.reduce((s,p)=>s+p.orders.filter(o=>o.invoiceDate&&!o.depositDate).reduce((ss,o)=>ss+o.amount,0),0));
-  const inProgress=projects.filter(p=>p.status==="진행중").length;
+  // ── 현장 현황 ──
+  const totalSites = projects.length;
+  const inProgress = projects.filter(p=>p.status==="진행중").length;
+  const doneSites  = projects.filter(p=>p.status==="완료").length;
+
+  // ── 매출/수금/미수 (매출 = 계산서 발행 누계) ──
+  let matRev=0, matPaid=0;
+  projects.forEach(p => (p.orders||[]).forEach(o => { if(o.invoiceDate){ const a=Number(o.amount)||0; matRev+=a; if(o.depositDate) matPaid+=a; } }));
+  const matUnpaid = matRev - matPaid;
+  let patRev=0, patPaid=0;
+  allBills.filter(b=>isPatentBillType(b.type)).forEach(b => { if(b.invoiceDate){ const a=Number(b.amount)||0; patRev+=a; if(b.depositDate) patPaid+=a; } });
+  const patUnpaid = patRev - patPaid;
+  const totRev=matRev+patRev, totPaid=matPaid+patPaid, totUnpaid=matUnpaid+patUnpaid;
+
+  // ── 회수율: 누적 + 기한내(자재 40일 / 특허 30일) ──
+  const dashPct = (num,den) => den>0 ? Math.round(num/den*1000)/10 : null;
+  const matCum = dashPct(matPaid, matRev);
+  const patCum = dashPct(patPaid, patRev);
+  const onTimeRate = (items, getInv, getDep, getAmt, D) => {
+    let den=0, num=0;
+    items.forEach(it => {
+      const inv=getInv(it); if(!inv) return;
+      const dep=getDep(it); const amt=Number(getAmt(it))||0;
+      const elapsed=ordDfToday(inv);
+      const evaluable = !!dep || (elapsed!=null && elapsed>=D);
+      if(!evaluable) return;
+      den+=amt;
+      if(dep && _daysOverdueCal(dep,inv)<=D) num+=amt;
+    });
+    return { rate: dashPct(num,den), den };
+  };
+  const matOrdersInv=[]; projects.forEach(p=>(p.orders||[]).forEach(o=>{ if(o.invoiceDate) matOrdersInv.push(o); }));
+  const patBillsInv = allBills.filter(b=>isPatentBillType(b.type) && b.invoiceDate);
+  const matOnTime = onTimeRate(matOrdersInv, o=>o.invoiceDate, o=>o.depositDate, o=>o.amount, 40);
+  const patOnTime = onTimeRate(patBillsInv,  b=>b.invoiceDate, b=>b.depositDate, b=>b.amount, 30);
+  const rateColor = r => r==null ? "var(--gray-300)" : (r>=90 ? "var(--green)" : (r>=70 ? "#ea580c" : "var(--red)"));
+  const dashGauge = (label, r, note) => {
+    const c=rateColor(r); const w=(r==null)?0:Math.max(2,Math.min(100,r));
+    return `<div style="margin-bottom:9px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px">
+        <span style="font-size:11px;color:var(--gray-600);font-weight:600">${label}</span>
+        <span style="font-size:13px;font-weight:800;color:${c}">${r==null?(note||"—"):r+"%"}</span>
+      </div>
+      <div style="height:8px;background:var(--gray-100);border-radius:99px;overflow:hidden">
+        <div style="height:100%;width:${w}%;background:${c};border-radius:99px"></div>
+      </div>
+    </div>`;
+  };
+
   const ctTypes=["공고","컨설팅","기술자재형","자재판매형","타공법","기타"];
   let html=`
   <p class="sec-title">📊 현황 요약</p>
-  <div class="grid-4">
-    <div class="stat-card"><div class="label">진행 중 현장</div><div class="value v-indigo">${inProgress}건</div></div>
-    <div class="stat-card"><div class="label">총 낙찰가</div><div class="value v-blue">${fmtNum(totalBid)}</div></div>
-    <div class="stat-card"><div class="label">총 청구 금액</div><div class="value v-green">${fmtNum(totalBilled)}</div></div>
-    <div class="stat-card"><div class="label">미수금</div><div class="value ${unpaid>0?'v-red':'v-gray'}">${fmtNum(unpaid)}</div></div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">
+    <div class="stat-card"><div class="label">전체 현장</div><div class="value v-indigo">${totalSites}건</div></div>
+    <div class="stat-card"><div class="label">진행 중</div><div class="value v-blue">${inProgress}건</div></div>
+    <div class="stat-card"><div class="label">완료</div><div class="value v-green">${doneSites}건</div></div>
+  </div>
+  <div style="background:#fff;border:1px solid var(--gray-200);border-radius:12px;overflow:hidden;margin-bottom:14px">
+    <div style="display:grid;grid-template-columns:80px 1fr 1fr 1fr;background:var(--gray-50);font-size:11px;font-weight:700;color:var(--gray-600);padding:8px 14px;border-bottom:1px solid var(--gray-200)">
+      <span>구분</span><span style="text-align:right">매출(발행누계)</span><span style="text-align:right">수금완료</span><span style="text-align:right">미수</span>
+    </div>
+    <div style="display:grid;grid-template-columns:80px 1fr 1fr 1fr;font-size:12px;padding:9px 14px;border-bottom:1px solid var(--gray-100)">
+      <span style="font-weight:700;color:var(--indigo)">🧱 자재</span><span style="text-align:right;font-weight:700">${fmtNum(matRev)}</span><span style="text-align:right;color:var(--green)">${fmtNum(matPaid)}</span><span style="text-align:right;color:${matUnpaid>0?'var(--red)':'var(--gray-400)'};font-weight:700">${fmtNum(matUnpaid)}</span>
+    </div>
+    <div style="display:grid;grid-template-columns:80px 1fr 1fr 1fr;font-size:12px;padding:9px 14px;border-bottom:1px solid var(--gray-100)">
+      <span style="font-weight:700;color:var(--purple)">🔖 특허</span><span style="text-align:right;font-weight:700">${fmtNum(patRev)}</span><span style="text-align:right;color:var(--green)">${fmtNum(patPaid)}</span><span style="text-align:right;color:${patUnpaid>0?'var(--red)':'var(--gray-400)'};font-weight:700">${fmtNum(patUnpaid)}</span>
+    </div>
+    <div style="display:grid;grid-template-columns:80px 1fr 1fr 1fr;font-size:12px;padding:9px 14px;background:var(--gray-50);font-weight:800">
+      <span>합계</span><span style="text-align:right">${fmtNum(totRev)}</span><span style="text-align:right;color:var(--green)">${fmtNum(totPaid)}</span><span style="text-align:right;color:${totUnpaid>0?'var(--red)':'var(--gray-400)'}">${fmtNum(totUnpaid)}</span>
+    </div>
+  </div>
+  <p class="sec-title">📈 회수율 <span style="font-size:11px;color:#9ca3af;font-weight:400">(기한내: 자재 40일 · 특허 30일)</span></p>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px">
+    <div class="stat-card" style="text-align:left">
+      <div style="font-size:12px;font-weight:700;color:var(--indigo);margin-bottom:8px">🧱 자재대금</div>
+      ${dashGauge("누적 회수율", matCum, "—")}
+      ${dashGauge("기한내 회수율 (40일)", matOnTime.rate, matOnTime.den>0?"—":"평가분 없음")}
+    </div>
+    <div class="stat-card" style="text-align:left">
+      <div style="font-size:12px;font-weight:700;color:var(--purple);margin-bottom:8px">🔖 특허료</div>
+      ${dashGauge("누적 회수율", patCum, "—")}
+      ${dashGauge("기한내 회수율 (30일)", patOnTime.rate, patOnTime.den>0?"—":"평가분 없음")}
+    </div>
   </div>
   <p class="sec-title">🏷️ 공사형태별 현황</p>
   <div class="grid-4" style="margin-bottom:20px">`;
@@ -1070,62 +1141,48 @@ function renderDashboard(){
     });
   }
 
-  // 대시보드 미수금: 청구서 미수금 + 자재주문 계산서 발행 미수금 → 아파트별 그룹핑
-  const unpaidBills = allBills.filter(b=>b.status!=="수금완료");
-  // 아파트(현장)별로 그룹핑
-  const dashUnpaidMap = {};
-  // 청구서 미수금
-  unpaidBills.forEach(b=>{
-    const key = b.projectId || (b.aptName||b.customerName);
-    if(!dashUnpaidMap[key]){
-      dashUnpaidMap[key]={
-        customerName:b.customerName, aptName:b.aptName,
-        constructionType:b.constructionType, totalAmount:0, items:[]
-      };
+  // ── 입금 지연 TOP 5 (자재+특허 통합, 계산서 발행 후 미입금 · 오래된 순) ──
+  const overdueList = [];
+  projects.forEach(p => (p.orders||[]).forEach(o => {
+    if(o.invoiceDate && !o.depositDate && Number(o.amount)>0){
+      overdueList.push({ kind:"자재", apt:(p.aptName||p.customerName), sub:(p.aptName?p.customerName:""), amount:Number(o.amount)||0, df:ordDfToday(o.invoiceDate), invoiceDate:o.invoiceDate, threshold:40 });
     }
-    dashUnpaidMap[key].totalAmount += b.amount;
-    dashUnpaidMap[key].items.push({status:b.type||b.status, amount:b.amount, issuedDate:b.issuedDate});
+  }));
+  allBills.filter(b=>isPatentBillType(b.type)).forEach(b => {
+    if(b.invoiceDate && !b.depositDate && Number(b.amount)>0){
+      overdueList.push({ kind:(b.type==="특별특허료"?"특별특허료":"특허료"), apt:(b.aptName||b.customerName), sub:(b.aptName?b.customerName:""), amount:Number(b.amount)||0, df:ordDfToday(b.invoiceDate), invoiceDate:b.invoiceDate, threshold:30 });
+    }
   });
-  // 자재주문 미수금
-  projects.forEach(p=>{
-    p.orders.forEach(o=>{
-      if(o.invoiceDate&&!o.depositDate){
-        const key = p.id;
-        if(!dashUnpaidMap[key]){
-          dashUnpaidMap[key]={
-            customerName:p.customerName, aptName:p.aptName,
-            constructionType:p.constructionType, totalAmount:0, items:[]
-          };
-        }
-        dashUnpaidMap[key].totalAmount += o.amount;
-        dashUnpaidMap[key].items.push({status:"자재계산서", amount:o.amount, issuedDate:o.invoiceDate});
-      }
-    });
-  });
-  const dashGroups = Object.values(dashUnpaidMap);
-  const totalUnpaidAmt = dashGroups.reduce((s,g)=>s+g.totalAmount,0);
-  if(dashGroups.length>0){
-    html+=`<p class="sec-title">⚠️ 미수금 현황 <span style="font-size:12px;color:#dc2626;font-weight:700">${fmtNum(totalUnpaidAmt)}</span></p>`;
-    dashGroups.forEach(g=>{
-      // 중복 없이 유니크한 상태 배지만 표시
-      const uniqueStatuses = [...new Set(g.items.map(it=>it.status))];
-      const itemBadges = uniqueStatuses.map(st=>{
-        const sb = st==="자재계산서"?"b-orange":(st==="특허료"||st==="특별특허료")?"b-patent":"b-red";
-        return badge(st,sb);
-      }).join(" ");
-      html+=`<div class="card-sm info-red" style="display:flex;justify-content:space-between;align-items:center">
-        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-          ${badge(g.constructionType,typeColor(g.constructionType))}
-          <div>
-            <strong>${g.aptName||g.customerName}</strong>
-            <span style="font-size:11px;color:#6b7280;margin-left:4px">${g.aptName?g.customerName:""}</span><br>
-            <span style="font-size:11px;color:#6b7280">${g.items.length}건 ${itemBadges}</span>
+  overdueList.sort((a,b)=> (b.df==null?-1:b.df) - (a.df==null?-1:a.df));
+  const overdueTop = overdueList.slice(0,5);
+  html += `<p class="sec-title">⏰ 입금 지연 TOP 5 <span style="font-size:11px;color:#9ca3af;font-weight:400">(계산서 발행 후 미입금 · 오래된 순)</span></p>`;
+  if(overdueTop.length===0){
+    html += `<div class="info-box info-gray" style="text-align:center;padding:14px">계산서 발행 후 미입금 건이 없습니다.</div>`;
+  } else {
+    overdueTop.forEach((it,i) => {
+      const over = it.df!=null && it.df >= it.threshold;
+      const dfColor = over ? "var(--red)" : (it.df!=null && it.df>=it.threshold-7 ? "#ea580c" : "var(--gray-600)");
+      const isMat = it.kind==="자재";
+      const kindColor = isMat ? "var(--indigo)" : "var(--purple)";
+      const kindBg = isMat ? "var(--indigo-light)" : "var(--purple-light)";
+      html += `<div class="card-sm" style="display:flex;justify-content:space-between;align-items:center;gap:10px;border-left:3px solid ${over?'var(--red)':'var(--gray-300)'}">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;flex-wrap:wrap">
+            <span style="font-size:11px;font-weight:800;color:var(--gray-400);width:16px">${i+1}</span>
+            <strong style="font-size:13px">${it.apt}</strong>
+            <span style="font-size:11px;color:#6b7280">${it.sub}</span>
+            <span style="font-size:10px;font-weight:700;color:${kindColor};background:${kindBg};border-radius:4px;padding:1px 6px">${it.kind}</span>
           </div>
+          <div style="font-size:11px;color:#6b7280;margin-left:22px">계산서 ${it.invoiceDate} · 기한 ${it.threshold}일</div>
         </div>
-        <strong style="color:#dc2626;white-space:nowrap">${fmtNum(g.totalAmount)}</strong>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-weight:700;color:var(--gray-900)">${fmtNum(it.amount)}</div>
+          <div style="font-size:12px;font-weight:800;color:${dfColor}">D+${it.df!=null?it.df:'?'}${over?' 초과':''}</div>
+        </div>
       </div>`;
     });
   }
+
   // 기술자재형 공사이용안내서 미발송 알림
   const guideUnsent = projects.filter(p=>
     p.constructionType==="기술자재형" &&
@@ -4181,7 +4238,7 @@ function jumpToOrderAndExpand(pid){
 //   · 발행(생성)은 자재주문 탭에 유지 (자재 누계 종속 트리거)
 //   · 여기선 계산서발행 / 입금 / 독촉 / 발행취소만 관리 ("관리만 이전")
 // ════════════════════════════════════════════
-let _patentFilter = "unpaid";  // unpaid(미수, 기본) | noinv(계산서 미발행) | all(완료 포함)
+let _patentFilter = "unpaid";  // all(전체) | unpaid(미수현장, 기본) | noinv(계산서 미발행) | done(완료현장)
 
 function setPatentFilter(f){
   _patentFilter = f || "unpaid";
@@ -4202,37 +4259,43 @@ function renderPatentRoyalty(){
   const doneList   = all.filter(b => b.status === "수금완료");   // 수금완료
 
   let view;
-  if (_patentFilter === "noinv") view = noinvList;
-  else if (_patentFilter === "all") view = all;
+  if (_patentFilter === "all") view = all;
+  else if (_patentFilter === "noinv") view = noinvList;
+  else if (_patentFilter === "done") view = doneList;
   else { _patentFilter = "unpaid"; view = unpaidList; }
 
   // ── 요약 카드 + 필터 (자재주문 탭과 동일한 ord-stat / ord-ftab UI) ──
   const pfOn = (k, cls) => (_patentFilter===k ? (cls||"on") : "");
   let html = `<p class="sec-title">🔖 특허료 관리</p>
     <div class="ord-stat-grid">
+      <div class="ord-stat-box ${pfOn('all')}" onclick="setPatentFilter('all')">
+        <div class="slbl">전체</div><div class="snum" style="color:var(--indigo)">${all.length}</div>
+        <div style="font-size:10px;color:var(--gray-400);margin-top:2px;font-weight:500">${fmtNum(sum(all))}원</div>
+      </div>
       <div class="ord-stat-box ${pfOn('unpaid')}" onclick="setPatentFilter('unpaid')">
-        <div class="slbl">🔖 미수</div><div class="snum" style="color:var(--purple)">${unpaidList.length}</div>
+        <div class="slbl">🔖 미수현장</div><div class="snum" style="color:var(--purple)">${unpaidList.length}</div>
         ${unpaidList.length>0?`<div style="font-size:10px;color:var(--gray-400);margin-top:2px;font-weight:500">${fmtNum(sum(unpaidList))}원</div>`:""}
       </div>
       <div class="ord-stat-box ${pfOn('noinv')}" onclick="setPatentFilter('noinv')">
         <div class="slbl">🧾 계산서 미발행</div><div class="snum" style="color:#ea580c">${noinvList.length}</div>
         ${noinvList.length>0?`<div style="font-size:10px;color:var(--gray-400);margin-top:2px;font-weight:500">${fmtNum(sum(noinvList))}원</div>`:""}
       </div>
-      <div class="ord-stat-box ${pfOn('all')}" onclick="setPatentFilter('all')">
-        <div class="slbl">✅ 완료 포함(전체)</div><div class="snum" style="color:var(--green)">${all.length}</div>
-        <div style="font-size:10px;color:var(--gray-400);margin-top:2px;font-weight:500">완료 ${doneList.length}건</div>
+      <div class="ord-stat-box ${pfOn('done')}" onclick="setPatentFilter('done')">
+        <div class="slbl">✅ 완료현장</div><div class="snum" style="color:var(--green)">${doneList.length}</div>
+        ${doneList.length>0?`<div style="font-size:10px;color:var(--gray-400);margin-top:2px;font-weight:500">${fmtNum(sum(doneList))}원</div>`:""}
       </div>
     </div>
     <div class="ord-ctrl">
       <span style="font-size:11px;font-weight:700;color:var(--gray-600)">필터</span>
-      <button class="ord-ftab ${pfOn('unpaid','on-purple')}" onclick="setPatentFilter('unpaid')">🔖 미수</button>
+      <button class="ord-ftab ${pfOn('all')}" onclick="setPatentFilter('all')">전체</button>
+      <button class="ord-ftab ${pfOn('unpaid','on-purple')}" onclick="setPatentFilter('unpaid')">🔖 미수현장</button>
       <button class="ord-ftab ${pfOn('noinv','on-orange')}" onclick="setPatentFilter('noinv')">🧾 계산서 미발행</button>
-      <button class="ord-ftab ${pfOn('all','on-green')}" onclick="setPatentFilter('all')">✅ 완료 현장 포함</button>
-      <div style="margin-left:auto;font-size:11px;color:var(--gray-400)">기본: 미수만 표시</div>
+      <button class="ord-ftab ${pfOn('done','on-green')}" onclick="setPatentFilter('done')">✅ 완료현장</button>
+      <div style="margin-left:auto;font-size:11px;color:var(--gray-400)">기본: 미수현장</div>
     </div>`;
 
   if (view.length === 0){
-    const emptyMsg = _patentFilter==="noinv" ? "계산서 미발행 건이 없습니다." : (_patentFilter==="all" ? "특허료 청구가 없습니다." : "미수 특허료가 없습니다.");
+    const emptyMsg = _patentFilter==="noinv" ? "계산서 미발행 건이 없습니다." : (_patentFilter==="done" ? "완료된 특허료 건이 없습니다." : (_patentFilter==="all" ? "특허료 청구가 없습니다." : "미수 특허료가 없습니다."));
     html += `<div style="text-align:center;padding:30px 0;color:var(--gray-400);font-size:12px">${emptyMsg}</div>`;
     document.getElementById("page-5").innerHTML = html;
     return;
