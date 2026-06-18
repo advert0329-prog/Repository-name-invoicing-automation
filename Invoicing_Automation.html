@@ -990,7 +990,7 @@ function computeKpis(){
       if(!o.invoiceDate) return;
       const rev = Number(o.amount)||0; if(rev<=0) return;
       const full = isOrderFullyPaid(o);
-      matItems.push({ key:"O:"+p.id+":"+o.id, rev, paid:getOrderPaidAmount(o), full, inv:o.invoiceDate, dep: full ? o.depositDate : "" });
+      matItems.push({ key:"O:"+p.id+":"+o.id, name:(p.aptName||p.customerName), kind:"자재", rev, paid:getOrderPaidAmount(o), full, inv:o.invoiceDate, dep: full ? o.depositDate : "" });
     });
   });
   const patItems = [];
@@ -999,7 +999,7 @@ function computeKpis(){
     if(b.projectId!=null && exIds.has(b.projectId)) return;
     const rev = Number(b.amount)||0; if(rev<=0) return;
     const full = (b.status==="수금완료") || !!b.depositDate;
-    patItems.push({ key:"B:"+(b.id!=null?b.id:(b.projectId+"_"+b.invoiceDate)), rev, paid: full?rev:0, full, inv:b.invoiceDate, dep: full ? b.depositDate : "" });
+    patItems.push({ key:"B:"+(b.id!=null?b.id:(b.projectId+"_"+b.invoiceDate)), name:(b.aptName||b.customerName), kind:(b.type==="특별특허료"?"특별특허료":"특허료"), rev, paid: full?rev:0, full, inv:b.invoiceDate, dep: full ? b.depositDate : "" });
   });
 
   const build = (items, D) => {
@@ -1023,16 +1023,17 @@ function computeKpis(){
     let median=null;
     if(arr.length){ const v=[...arr].sort((a,b)=>a-b); const m=Math.floor(v.length/2); median = v.length%2 ? v[m] : Math.round((v[m-1]+v[m])/2*10)/10; }
     // KPI3 장기미수 (미수 = 회수 미완료 & 미수액>0)
-    let g90={c:0,a:0}, g60={c:0,a:0}, gray={c:0,a:0}, g90keys=[], grayKeys=[];
+    let g90={c:0,a:0}, g60={c:0,a:0}, gray={c:0,a:0}, g90keys=[], grayKeys=[], g90items=[], g60items=[], grayItems=[];
     items.forEach(it=>{
       if(it.full) return;
       const remain = it.rev - it.paid; if(remain<=0) return;
       const el = elapsed(it.inv); if(el==null) return;
-      if(el>=90){ g90.c++; g90.a+=remain; g90keys.push(it.key); }
-      if(el>60){ g60.c++; g60.a+=remain; }
-      if(el>60 && el<90){ gray.c++; gray.a+=remain; grayKeys.push(it.key); }
+      const d = { name:it.name, kind:it.kind, remain, el, inv:it.inv };
+      if(el>=90){ g90.c++; g90.a+=remain; g90keys.push(it.key); g90items.push(d); }
+      if(el>60){ g60.c++; g60.a+=remain; g60items.push(d); }
+      if(el>60 && el<90){ gray.c++; gray.a+=remain; grayKeys.push(it.key); grayItems.push(d); }
     });
-    return { rev, paid, unpaid:rev-paid, dueRev, onTimeRate:pct(onTimeRev,dueRev), collectRate:pct(collectedRev,dueRev), recCount:arr.length, avg, median, g90, g60, gray, g90keys, grayKeys };
+    return { rev, paid, unpaid:rev-paid, dueRev, onTimeRate:pct(onTimeRev,dueRev), collectRate:pct(collectedRev,dueRev), recCount:arr.length, avg, median, g90, g60, gray, g90keys, grayKeys, g90items, g60items, grayItems };
   };
   return { mat: build(matItems,40), pat: build(patItems,30), exCount: exIds.size };
 }
@@ -1050,17 +1051,22 @@ function _kpiGauge(label, r, note){
     </div>
   </div>`;
 }
-function kpiSalesCard(title, color, k){
+function kpiSalesCard(title, color, k, recMode){
   const isMat = title.indexOf("자재")>=0;
   const semi = _kpiSemiGauge(k.collectRate, _kpiRateColor(k.collectRate));
   const barColor = _kpiRateColor(k.onTimeRate);
   const barW = k.onTimeRate==null ? 0 : Math.max(2,Math.min(100,k.onTimeRate));
+  const recMain = recMode==="median" ? (k.median==null?"—":k.median+"일") : (k.avg==null?"—":k.avg+"일");
+  const recFoot = recMode==="median"
+    ? (k.avg!=null?` · 중앙값 회수 ${recMain} (평균 ${k.avg}일)`:` · 중앙값 회수 ${recMain}`)
+    : ` · 평균 회수 ${recMain}`;
   return `<div class="stat-card" style="text-align:left;padding:16px">
     <div style="font-size:13px;font-weight:800;color:${color};margin-bottom:10px">${title}</div>
-    <div style="display:flex;gap:12px;font-size:11px;margin-bottom:14px;flex-wrap:wrap">
-      <span style="color:var(--gray-400)">매출 <strong style="color:var(--gray-900);font-size:12px">${fmtNum(k.rev)}</strong></span>
-      <span style="color:var(--gray-400)">실수금 <strong style="color:var(--green);font-size:12px">${fmtNum(k.paid)}</strong></span>
-      <span style="color:var(--gray-400)">미수 <strong style="color:${k.unpaid>0?'var(--red)':'var(--gray-400)'};font-size:12px">${fmtNum(k.unpaid)}</strong></span>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:4px;margin-bottom:14px;text-align:center">
+      <div><div style="font-size:10px;color:var(--gray-400)">매출</div><div style="font-size:12px;font-weight:700">${fmtNum(k.rev)}</div></div>
+      <div><div style="font-size:10px;color:var(--gray-400)">실수금</div><div style="font-size:12px;font-weight:700;color:var(--green)">${fmtNum(k.paid)}</div></div>
+      <div><div style="font-size:10px;color:var(--gray-400)">미수</div><div style="font-size:12px;font-weight:700;color:${k.unpaid>0?'var(--red)':'var(--gray-400)'}">${fmtNum(k.unpaid)}</div></div>
+      <div><div style="font-size:10px;color:var(--gray-400)">평균회수</div><div style="font-size:12px;font-weight:700;color:var(--indigo)">${recMain}</div></div>
     </div>
     <div style="display:flex;gap:14px;align-items:center">
       <div style="text-align:center;flex-shrink:0;width:140px">
@@ -1075,7 +1081,7 @@ function kpiSalesCard(title, color, k){
         <div style="height:10px;background:var(--gray-100);border-radius:99px;overflow:hidden">
           <div style="height:100%;width:${barW}%;background:${barColor};border-radius:99px"></div>
         </div>
-        <div style="font-size:10px;color:#9ca3af;margin-top:6px">도래분 기준 · ${isMat?"40일":"30일"}</div>
+        <div style="font-size:10px;color:#9ca3af;margin-top:6px">도래분 ${isMat?"40일":"30일"}${recFoot} · 회수완료 ${k.recCount}건</div>
       </div>
     </div>
   </div>`;
@@ -1120,12 +1126,12 @@ function kpiExceptionPanel(){
 }
 function toggleKpiException(pid){
   const p = projects.find(x=>x.id===pid); if(!p) return;
-  p.kpiExcluded = !p.kpiExcluded; saveData(); renderDashboard();
+  p.kpiExcluded = !p.kpiExcluded; saveData(); renderPage(currentTab);
 }
 function addKpiException(pidStr){
   const pid = Number(pidStr); if(!pid) return;
   const p = projects.find(x=>x.id===pid); if(!p) return;
-  p.kpiExcluded = true; saveData(); renderDashboard();
+  p.kpiExcluded = true; saveData(); renderPage(currentTab);
 }
 
 // ════════ KPI 월 스냅샷 · 전월대비 · 추이 ════════
@@ -1136,7 +1142,7 @@ function saveKpiSnapshot(){
   const mk = kpiMonthKeyNow();
   const existed = !!(kpiSnapshots && kpiSnapshots[mk]);
   if(!kpiSnapshots || typeof kpiSnapshots!=="object") kpiSnapshots = {};
-  kpiSnapshots[mk] = { savedAt: Date.now(), mat: k.mat, pat: k.pat, exCount: k.exCount };
+  kpiSnapshots[mk] = { savedAt: Date.now(), mat: _snapTrim(k.mat), pat: _snapTrim(k.pat), exCount: k.exCount };
   saveData();
   renderDashboard();
   if(typeof window._showSaved==="function") window._showSaved(`📸 ${mk} KPI 스냅샷 ${existed?"갱신":"저장"}됨`);
@@ -1306,6 +1312,108 @@ function kpiSiteOverviewCard(){
   </div>`;
 }
 
+let _agingOpen = null;
+function toggleAging(bucket){ _agingOpen = (_agingOpen===bucket) ? null : bucket; renderPage(currentTab); }
+function _snapTrim(t){ const o={}; ["rev","paid","unpaid","dueRev","onTimeRate","collectRate","recCount","avg","median","g90","g60","gray","g90keys","grayKeys"].forEach(k=>o[k]=t[k]); return o; }
+
+function kpiTrendSummary(kpi){
+  const curMk = kpiMonthKeyNow();
+  const months = (kpiSnapshots && typeof kpiSnapshots==="object") ? Object.keys(kpiSnapshots).sort() : [];
+  const prev = _kpiPrevSnapshot(curMk);
+  const mom = _kpiMomStats(kpi, prev);
+  const last = months.length ? months[months.length-1] : null;
+  let html = `<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;background:#eef2ff;border:1px solid #c7d2fe;border-radius:var(--radius);padding:12px 14px;margin-bottom:12px">
+    <div style="font-size:11px;color:#3730a3;line-height:1.6">📸 저장된 월 스냅샷 <strong>${months.length}개</strong>${last?` · 최근 ${last}`:""}<br>${(kpiSnapshots&&kpiSnapshots[curMk])?`<span style="color:#16a34a;font-weight:700">이번 달(${curMk}) 저장됨</span>`:`<span style="color:#dc2626;font-weight:700">이번 달 미저장</span>`}</div>
+    <button onclick="saveKpiSnapshot()" style="background:#4338ca;color:#fff;border:none;border-radius:7px;padding:7px 13px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap">📸 이번 달 저장</button>
+  </div>`;
+  if(prev && mom){
+    html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      ${_momCard("🆕 신규 90일 진입", mom, "newG90")}
+      ${_momCard("🔁 회색→90 전환율", mom, "convRate")}
+    </div>`;
+  } else {
+    html += `<div class="info-box info-gray" style="text-align:center;padding:10px;font-size:11px">전월 스냅샷이 있어야 신규 진입·전환율이 계산됩니다 (이번 달 저장 후 다음 달부터).</div>`;
+  }
+  return html;
+}
+function kpiTrendCharts(){
+  const months = (kpiSnapshots && typeof kpiSnapshots==="object") ? Object.keys(kpiSnapshots).sort() : [];
+  let html = `<p class="sec-title">📈 KPI 추이 차트 <span style="font-size:11px;color:#9ca3af;font-weight:400">(월 스냅샷 기반)</span></p>`;
+  if(months.length>=2){
+    const series = (track, field) => months.map(mk=>({mk, v: (kpiSnapshots[mk]&&kpiSnapshots[mk][track]) ? kpiSnapshots[mk][track][field] : null}));
+    const seriesA = (track) => months.map(mk=>({mk, v: (kpiSnapshots[mk]&&kpiSnapshots[mk][track]&&kpiSnapshots[mk][track].g90) ? kpiSnapshots[mk][track].g90.a : null}));
+    const c1 = _kpiLineChart(months, [{name:"기간내(선행)",color:"#4338ca",pts:series("mat","onTimeRate")},{name:"전체(결과)",color:"#16a34a",pts:series("mat","collectRate")}], {maxY:100});
+    const c2 = _kpiLineChart(months, [{name:"기간내(선행)",color:"#7c3aed",pts:series("pat","onTimeRate")},{name:"전체(결과)",color:"#16a34a",pts:series("pat","collectRate")}], {maxY:100});
+    const c3 = _kpiLineChart(months, [{name:"자재 중앙값",color:"#4338ca",pts:series("mat","median")},{name:"특허 평균",color:"#7c3aed",pts:series("pat","avg")}], {});
+    const c4 = _kpiLineChart(months, [{name:"자재",color:"#dc2626",pts:seriesA("mat")},{name:"특허",color:"#be185d",pts:seriesA("pat")}], {});
+    const card = (t,svg)=>`<div style="background:#fff;border:1px solid var(--gray-200);border-radius:var(--radius);box-shadow:var(--shadow);padding:12px"><div style="font-size:11px;font-weight:700;color:var(--gray-700);margin-bottom:2px">${t}</div>${svg}</div>`;
+    html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px">
+      ${card("🧱 자재 수금율 (선행 vs 결과)", c1)}
+      ${card("🔖 특허 수금율 (선행 vs 결과)", c2)}
+      ${card("⏱ 평균 회수일수 (일)", c3)}
+      ${card("🔴 90일경과 미수액", c4)}
+    </div>`;
+  } else {
+    html += `<div class="info-box info-gray" style="text-align:center;padding:10px;font-size:11px;margin-bottom:20px">추이 그래프는 스냅샷이 2개월 이상 쌓이면 표시됩니다.</div>`;
+  }
+  return html;
+}
+function kpiAgingSection(kpi){
+  const mk=kpi.mat, pk=kpi.pat;
+  const cards = [
+    {key:"g90", label:"🔴 90일 경과", color:"var(--red)", c:mk.g90.c+pk.g90.c, a:mk.g90.a+pk.g90.a},
+    {key:"g60", label:"🟠 60일 초과", color:"#ea580c", c:mk.g60.c+pk.g60.c, a:mk.g60.a+pk.g60.a},
+    {key:"gray", label:"🟡 회색지대(60~90)", color:"#ca8a04", c:mk.gray.c+pk.gray.c, a:mk.gray.a+pk.gray.a},
+  ];
+  const bucket = (key) => (mk[key+"items"]||[]).concat(pk[key+"items"]||[]).sort((a,b)=>b.el-a.el);
+  let html = `<div style="background:#fff;border:1px solid var(--gray-200);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;margin-bottom:20px">
+    <div style="font-size:12px;font-weight:700;color:var(--gray-700);margin-bottom:10px">⚠️ 장기미수 <span style="font-weight:400;color:#9ca3af">(경과일 = 오늘 − 계산서 발행일 · 미수액 · 클릭 시 내역)</span></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">`;
+  cards.forEach(cd=>{
+    const open=_agingOpen===cd.key, clickable=cd.c>0;
+    html += `<div ${clickable?`onclick="toggleAging('${cd.key}')"`:""} style="border:1px solid ${open?cd.color:'var(--gray-200)'};border-radius:10px;padding:10px;text-align:center;background:${cd.c>0?'#fff':'var(--gray-50)'};cursor:${clickable?'pointer':'default'}">
+      <div style="font-size:11px;font-weight:700;color:${cd.color};margin-bottom:6px">${cd.label}${clickable?` <span style="font-size:9px;color:#9ca3af">${open?'▲':'▼'}</span>`:""}</div>
+      <div style="font-size:18px;font-weight:800;color:${cd.c>0?'var(--gray-900)':'var(--gray-400)'}">${cd.c}건</div>
+      <div style="font-size:11px;color:${cd.c>0?cd.color:'var(--gray-400)'};font-weight:600;margin-top:2px">${fmtNum(cd.a)}</div>
+    </div>`;
+  });
+  html += `</div>`;
+  if(_agingOpen){
+    const items=bucket(_agingOpen); const cd=cards.find(c=>c.key===_agingOpen);
+    if(items.length){
+      html += `<div style="margin-top:12px;border-top:1px solid var(--gray-100);padding-top:10px"><div style="font-size:11px;font-weight:700;color:var(--gray-600);margin-bottom:6px">${cd.label} 내역 ${items.length}건</div>`;
+      items.forEach(it=>{
+        const isMat=it.kind==="자재"; const kc=isMat?"var(--indigo)":"var(--purple)"; const kb=isMat?"var(--indigo-light)":"var(--purple-light)";
+        html += `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--gray-100)">
+          <div style="display:flex;align-items:center;gap:6px;min-width:0;flex-wrap:wrap"><span style="font-size:10px;font-weight:700;color:${kc};background:${kb};border-radius:4px;padding:1px 6px">${it.kind}</span><span style="font-size:12px;color:var(--gray-800);font-weight:600">${it.name}</span><span style="font-size:10px;color:#9ca3af">계산서 ${it.inv}</span></div>
+          <div style="text-align:right;flex-shrink:0"><span style="font-size:12px;font-weight:700;color:var(--gray-900)">${fmtNum(it.remain)}</span><span style="font-size:11px;font-weight:700;color:${cd.color};margin-left:6px">D+${it.el}</span></div>
+        </div>`;
+      });
+      html += `</div>`;
+    } else { html += `<div style="margin-top:10px;font-size:11px;color:var(--gray-400);text-align:center">해당 내역이 없습니다.</div>`; }
+  }
+  html += `<div style="font-size:10px;color:#9ca3af;margin-top:8px">※ 60일 초과 = 회색지대 + 90일 경과 포함(합계 개념)</div></div>`;
+  return html;
+}
+function kpiExceptionSettingsCard(){
+  const excluded = projects.filter(p=>p.kpiExcluded);
+  const candidates = projects.filter(p=>!p.kpiExcluded);
+  const chips = excluded.length===0
+    ? `<span style="font-size:12px;color:#9ca3af">지정된 예외 현장이 없습니다.</span>`
+    : excluded.map(p=>`<span style="display:inline-flex;align-items:center;gap:5px;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:7px;padding:4px 9px;font-size:12px;margin:0 6px 6px 0">${p.aptName||p.customerName}<span onclick="toggleKpiException(${p.id})" style="cursor:pointer;color:#dc2626;font-weight:700" title="제외 해제">✕</span></span>`).join("");
+  const opts = candidates.map(p=>`<option value="${p.id}">${p.aptName||p.customerName}${(p.customerName&&p.aptName)?` (${p.customerName})`:""}</option>`).join("");
+  return `<div class="card" style="margin-top:16px">
+    <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:6px;display:flex;align-items:center;gap:6px">🚫 KPI 예외 현장 <span style="font-size:11px;font-weight:400;color:#9ca3af">(대금관리 KPI 합산에서 제외)</span></div>
+    <div style="font-size:12px;color:#6b7280;margin-bottom:12px">분쟁·발주처 기성 의존 등 특수 현장을 KPI 계산에서 제외합니다. 제외해도 데이터·미수 관리에는 영향 없습니다.</div>
+    <select onchange="addKpiException(this.value);this.value=''" style="font-size:12px;padding:7px 10px;border:1px solid #d1d5db;border-radius:8px;background:#fff;margin-bottom:12px;width:100%;max-width:340px">
+      <option value="">+ 예외 현장 추가</option>
+      ${opts}
+    </select>
+    <div style="font-size:11px;font-weight:600;color:#9ca3af;margin-bottom:6px">현재 예외 현장 (${excluded.length})</div>
+    <div>${chips}</div>
+  </div>`;
+}
+
 function renderDashboard(){
   // ── 현장 현황 ──
   const totalSites = projects.length;
@@ -1317,33 +1425,24 @@ function renderDashboard(){
   const mk = kpi.mat, pk = kpi.pat;
 
   const ctTypes=["공고","컨설팅","기술자재형","자재판매형","타공법","기타"];
-  let html = `<p class="sec-title">📊 현장 현황</p>` + kpiSiteOverviewCard();
+  let html = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;align-items:start;margin-bottom:4px">
+    <div><p class="sec-title" style="margin-top:0">📊 현장 현황</p>${kpiSiteOverviewCard()}</div>
+    <div><p class="sec-title" style="margin-top:0">📈 KPI 추이 & 전월 대비</p>${kpiTrendSummary(kpi)}</div>
+  </div>`;
   html += `
-  <p class="sec-title">💰 매출 · 회수 현황 <span style="font-size:11px;color:#9ca3af;font-weight:400">(공급가액·실수금 기준${kpi.exCount>0?` · 예외 ${kpi.exCount}현장 제외`:""})</span></p>
+  <p class="sec-title">💰 매출 · 회수 현황 <span style="font-size:11px;color:#9ca3af;font-weight:400">(공급가액·실수금·회수 성과${kpi.exCount>0?` · 예외 ${kpi.exCount}현장 제외`:""})</span></p>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
-    ${kpiSalesCard("🧱 자재대금", "var(--indigo)", mk)}
-    ${kpiSalesCard("🔖 특허료", "var(--purple)", pk)}
+    ${kpiSalesCard("🧱 자재대금", "var(--indigo)", mk, "median")}
+    ${kpiSalesCard("🔖 특허료", "var(--purple)", pk, "avg")}
   </div>
   <div style="display:flex;justify-content:flex-end;gap:18px;font-size:12px;color:var(--gray-600);margin-bottom:6px;padding:0 4px">
     <span>합계 매출 <strong style="color:var(--gray-900)">${fmtNum(mk.rev+pk.rev)}</strong></span>
     <span>실수금 <strong style="color:var(--green)">${fmtNum(mk.paid+pk.paid)}</strong></span>
     <span>미수 <strong style="color:${(mk.unpaid+pk.unpaid)>0?'var(--red)':'var(--gray-400)'}">${fmtNum(mk.unpaid+pk.unpaid)}</strong></span>
   </div>
-  <div style="font-size:10px;color:#9ca3af;text-align:right;margin-bottom:18px;padding:0 4px">기간내수금율=선행 · 전체수금율=결과 (도래분 기준 · 자재 40일/특허 30일)</div>
-  <p class="sec-title">📊 대금관리 KPI <span style="font-size:11px;color:#9ca3af;font-weight:400">(현재 시점 · 공급가액)</span></p>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
-    ${kpiRecoveryCard("🧱 자재", "var(--indigo)", mk, true)}
-    ${kpiRecoveryCard("🔖 특허료", "var(--purple)", pk, false)}
-  </div>
-  <div style="background:#fff;border:1px solid var(--gray-200);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;margin-bottom:12px">
-    <div style="font-size:12px;font-weight:700;color:var(--gray-700);margin-bottom:10px">⚠️ 장기미수 <span style="font-weight:400;color:#9ca3af">(경과일 = 오늘 − 계산서 발행일 · 미수액 기준)</span></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
-      ${kpiAgingCard("🔴 90일 경과", "var(--red)", mk.g90, pk.g90)}
-      ${kpiAgingCard("🟠 60일 초과", "#ea580c", mk.g60, pk.g60)}
-      ${kpiAgingCard("🟡 회색지대(60~90)", "#ca8a04", mk.gray, pk.gray)}
-    </div>
-    <div style="font-size:10px;color:#9ca3af;margin-top:8px">※ 60일 초과 = 회색지대 + 90일 경과 포함(합계 개념)</div>
-  </div>` + kpiExceptionPanel() + kpiTrendSection(kpi);
+  <div style="font-size:10px;color:#9ca3af;text-align:right;margin-bottom:18px;padding:0 4px">기간내수금율=선행 · 전체수금율=결과 (도래분 기준 · 자재 40일/특허 30일)</div>`;
+  html += kpiAgingSection(kpi);
+  html += kpiTrendCharts();
   if(projects.length===0){
     html+=`<div class="info-box info-blue" style="text-align:center;padding:20px">📥 <strong>엑셀 가져오기</strong> 탭에서 기존 데이터를 불러오거나 <strong>현장 관리</strong>에서 직접 등록하세요.</div>`;
   } else {
@@ -5734,6 +5833,8 @@ function buildSettingsHtml(){
     <input type="file" id="notice-tmpl-input" accept=".xlsx,.xls" style="display:none"
       onchange="handleNoticeTemplateUpload(this)"/>
   </div>
+
+  ${kpiExceptionSettingsCard()}
 
   <!-- Firebase 실시간 동기화 -->
   <div class="card" style="margin-top:16px">
