@@ -1268,7 +1268,8 @@ function kpiAgingSection(kpi){
     {key:"g60", label:"🟠 60일 초과", color:"#ea580c", c:mk.g60.c+pk.g60.c, a:mk.g60.a+pk.g60.a},
     {key:"gray", label:"🟡 회색지대(60~90)", color:"#ca8a04", c:mk.gray.c+pk.gray.c, a:mk.gray.a+pk.gray.a},
   ];
-  const bucket = (key) => (mk[key+"items"]||[]).concat(pk[key+"items"]||[]).sort((a,b)=>b.el-a.el);
+  const _itemProp = {g90:"g90items", g60:"g60items", gray:"grayItems"};
+  const bucket = (key) => (mk[_itemProp[key]]||[]).concat(pk[_itemProp[key]]||[]).sort((a,b)=>b.el-a.el);
   let html = `<div style="background:#fff;border:1px solid var(--gray-200);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;margin-bottom:20px">
     <div style="font-size:12px;font-weight:700;color:var(--gray-700);margin-bottom:10px">⚠️ 장기미수 <span style="font-weight:400;color:#9ca3af">(경과일 = 오늘 − 계산서 발행일 · 미수액 · 클릭 시 내역)</span></div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">`;
@@ -1284,12 +1285,24 @@ function kpiAgingSection(kpi){
   if(_agingOpen){
     const items=bucket(_agingOpen); const cd=cards.find(c=>c.key===_agingOpen);
     if(items.length){
-      html += `<div style="margin-top:12px;border-top:1px solid var(--gray-100);padding-top:10px"><div style="font-size:11px;font-weight:700;color:var(--gray-600);margin-bottom:6px">${cd.label} 내역 ${items.length}건</div>`;
+      const groups = {};
       items.forEach(it=>{
-        const isMat=it.kind==="자재"; const kc=isMat?"var(--indigo)":"var(--purple)"; const kb=isMat?"var(--indigo-light)":"var(--purple-light)";
+        const g = groups[it.name] || (groups[it.name]={ name:it.name, kinds:{}, count:0, remain:0, maxEl:0, inv:it.inv });
+        g.kinds[it.kind]=true; g.count++; g.remain+=it.remain;
+        if(it.el>g.maxEl) g.maxEl=it.el;
+      });
+      const gList = Object.values(groups).sort((a,b)=>b.remain-a.remain);
+      html += `<div style="margin-top:12px;border-top:1px solid var(--gray-100);padding-top:10px"><div style="font-size:11px;font-weight:700;color:var(--gray-600);margin-bottom:6px">${cd.label} ${gList.length}개 현장 · ${items.length}건</div>`;
+      gList.forEach(g=>{
+        const kinds=Object.keys(g.kinds);
+        const isMat=kinds.length===1&&kinds[0]==="자재";
+        const kc=kinds.length>1?"var(--gray-600)":(isMat?"var(--indigo)":"var(--purple)");
+        const kb=kinds.length>1?"var(--gray-100)":(isMat?"var(--indigo-light)":"var(--purple-light)");
+        const kindLabel=kinds.join("·");
+        const sub=g.count>1?`<span style="font-size:10px;color:#9ca3af">${g.count}건</span>`:`<span style="font-size:10px;color:#9ca3af">계산서 ${g.inv}</span>`;
         html += `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--gray-100)">
-          <div style="display:flex;align-items:center;gap:6px;min-width:0;flex-wrap:wrap"><span style="font-size:10px;font-weight:700;color:${kc};background:${kb};border-radius:4px;padding:1px 6px">${it.kind}</span><span style="font-size:12px;color:var(--gray-800);font-weight:600">${it.name}</span><span style="font-size:10px;color:#9ca3af">계산서 ${it.inv}</span></div>
-          <div style="text-align:right;flex-shrink:0"><span style="font-size:12px;font-weight:700;color:var(--gray-900)">${fmtNum(it.remain)}</span><span style="font-size:11px;font-weight:700;color:${cd.color};margin-left:6px">D+${it.el}</span></div>
+          <div style="display:flex;align-items:center;gap:6px;min-width:0;flex-wrap:wrap"><span style="font-size:10px;font-weight:700;color:${kc};background:${kb};border-radius:4px;padding:1px 6px">${kindLabel}</span><span style="font-size:12px;color:var(--gray-800);font-weight:600">${g.name}</span>${sub}</div>
+          <div style="text-align:right;flex-shrink:0"><span style="font-size:12px;font-weight:700;color:var(--gray-900)">${fmtNum(g.remain)}</span><span style="font-size:11px;font-weight:700;color:${cd.color};margin-left:6px">D+${g.maxEl}</span></div>
         </div>`;
       });
       html += `</div>`;
@@ -1360,7 +1373,7 @@ function kpiSiteOverviewCard(){
     ? `<div style="font-size:12px;color:var(--gray-400)">현장 데이터 없음</div>`
     : segs.map(x=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--gray-100)">
         <div style="display:flex;align-items:center;gap:8px;min-width:0"><span style="width:10px;height:10px;border-radius:3px;background:${x.color};flex-shrink:0"></span><span style="font-size:12px;color:var(--gray-700);font-weight:600">${x.name}</span></div>
-        <div style="text-align:right"><span style="font-size:13px;font-weight:700;color:var(--gray-900)">${x.value}건</span><span style="font-size:11px;color:#9ca3af;margin-left:6px">${fmtNum(x.amount)}</span></div>
+        <div style="text-align:right"><span style="font-size:13px;font-weight:700;color:var(--gray-900)">${x.value}건</span></div>
       </div>`).join("");
   return `<div style="background:#fff;border:1px solid var(--gray-200);border-radius:14px;padding:18px;margin-bottom:20px">
     <div style="display:flex;gap:8px;margin-bottom:16px">
@@ -8060,7 +8073,7 @@ function collectUnpaidTrackC(referenceDate){ return _buildUnpaidGroup("C", refer
 function openDunningEmail(bid){
   const b=allBills.find(x=>x.id===bid);selBillId=bid;
   const _dTo = b.contactEmail || (companyMaster.find(c=>c.name===b.customerName)||{}).email || "";
-  openEmailModal(_dTo,`[미수금 안내] ${b.aptName||""} ${b.type} 미납`,`안녕하세요, ${b.customerName} 담당자님.\n\n${b.aptName||""} ${b.constructionName||""} ${b.type} ${fmtNum(b.amount)}이(가) 미납 상태입니다.\n\n청구 발행일: ${b.issuedDate}\n청구 금액: ${fmtNum(b.amount)}\n\n빠른 처리 부탁드립니다.\n감사합니다.`);
+  openEmailModal(_dTo,`[넷폼알앤디]${b.aptName||""}_${b.type} 입금요청의 건`,`안녕하세요, ${b.customerName} 담당자님.\n${b.aptName||""}_${b.type} ${fmtNum(b.amount)}원이(가) 미납 상태입니다.\n계산서 발행일: ${b.invoiceDate||"-"}\n청구 금액: ${fmtNum(b.amount)} 원\n빠른 입금 처리 부탁드립니다.\n감사합니다.`);
 }
 
 // ── 청구서 ──
