@@ -2168,6 +2168,12 @@ let upViewMode = "bill"; // 미수금 관리 탭 보기 모드: bill (청구서�
 let upExpandedCustomers = new Set(); // 업체별 보기에서 펼쳐진 업체명들
 let ordExpandedIds = new Set();
 let ordShowCompleted = false;
+// 특허료 청구완료/수금완료된 현장 숨김 (기본 숨김). 체크 시 포함.
+let ordShowPatentDone = false;
+function isPatentDoneProject(p){
+  // 특허료 청구서가 발행됐으면(청구완료) 또는 수금완료면 '완료'로 간주
+  return allBills.some(b => b.projectId === p.id && isPatentBillType(b.type));
+}
 let ordPopPid = null, ordPopOid = null, ordPopField = null, ordPopKind = "order";  // kind: "order" | "bill"
 let ordBillPid = null;
 let ordInlineAddPid = null;
@@ -2294,6 +2300,11 @@ function ordGetFiltered(){
     ? base.filter(p=>(p.aptName||"").includes(ordSearch)||(p.customerName||"").includes(ordSearch))
     : base;
   data = data.filter(p => (p.orders && p.orders.length > 0) || p.id === ordInlineAddPid);
+
+  // 특허료 청구완료/수금완료 현장 숨김 (체크박스로 토글)
+  if(!ordShowPatentDone){
+    data = data.filter(p => p.id === ordInlineAddPid || !isPatentDoneProject(p));
+  }
 
   // "계산서 미발행" 필터는 누락 방지 목적 — 공사형태/상태 무관 모든 자재주문 발생 건 포함
   if(ordFilter==="noinv") {
@@ -2521,6 +2532,12 @@ function renderOrders(){
     .filter(p => p.status !== "유찰" && p.status !== "취소");
   const calcs = allForStats.map(p=>({p,c:ordCalc(p)}));
   const completedCnt = projects.filter(p=>p.status==="완료").length;
+  // 특허료 청구완료/수금완료로 숨겨진 현장 수 (주문이 있는 현장 기준)
+  const patentDoneCnt = projects.filter(p =>
+    (p.status==="완료"?ordShowCompleted:true) &&
+    (p.orders && p.orders.length>0) &&
+    isPatentDoneProject(p)
+  ).length;
 
   // 통계 — 현장 수
   const snAll    = all.filter(p=>p.orders&&p.orders.length>0).length;  // 전체현장은 lump 포함 (의미 있음)
@@ -2570,6 +2587,10 @@ function renderOrders(){
       <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11px;color:#374151;user-select:none;padding:5px 10px;background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb">
         <input type="checkbox" ${ordShowCompleted?"checked":""} onchange="ordShowCompleted=this.checked;ordPage=1;renderOrders()" style="width:13px;height:13px;cursor:pointer"/>
         완료현장 포함${completedCnt>0?` <span style="color:var(--green)">(${completedCnt})</span>`:""}
+      </label>
+      <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11px;color:#374151;user-select:none;padding:5px 10px;background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb">
+        <input type="checkbox" ${ordShowPatentDone?"checked":""} onchange="ordShowPatentDone=this.checked;ordPage=1;renderOrders()" style="width:13px;height:13px;cursor:pointer"/>
+        특허 완료 포함${patentDoneCnt>0?` <span style="color:var(--indigo);font-weight:600">(${patentDoneCnt})</span>`:""}
       </label>
       <div style="display:flex;align-items:center;background:#fff;border:1.5px solid #a5b4fc;border-radius:10px;overflow:visible;min-width:360px;position:relative">
         <span style="flex-shrink:0;padding:6px 11px;background:#eef2ff;font-size:11px;font-weight:700;color:var(--indigo);white-space:nowrap;border-right:1px solid #c7d2fe;border-radius:8px 0 0 8px">⚡ 빠른 주문 추가</span>
@@ -5965,6 +5986,9 @@ function saveCreditSetting(){
       endDate:    document.getElementById('cr-guar-end').value||''
     };
   }
+  // 여신 설정 변경 시 해당 고객사의 선급 차감 즉시 재계산 (기존 주문에도 소급 적용)
+  recalcPrepaidForCompany(c.name);
+  saveData();
   saveCompanyMaster();
   closeCreditModal();
   renderSettings();
@@ -5973,6 +5997,12 @@ function saveCreditSetting(){
 
 // ════════ 여신관리 탭 (현황 모니터링) ════════
 function renderCreditManagement(){
+  // 화면 조회 시 모든 선급 고객사의 차감을 재계산 (어느 경로로 주문이 들어왔든 항상 최신)
+  let _changed = false;
+  (companyMaster||[]).forEach(c => {
+    if(c.credit && c.credit.type==='prepaid'){ recalcPrepaidForCompany(c.name); _changed = true; }
+  });
+  if(_changed) saveData();
   const companies = creditCompanies();
   let html = `<div style="max-width:880px;margin:0 auto">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
