@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>대금청구 자동화 시스템</title>
+<title>넷폼 대금관리 시스템</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -369,8 +369,8 @@ input[type="url"], input[type="password"]{
 
 <div class="header">
   <div>
-    <h1>🏗️ 대금청구 자동화 시스템</h1>
-    <p>공법사 전용 · 공고 / 컨설팅 / 기술자재형 / 자재판매형 / 기타 &nbsp;<span style="background:rgba(255,255,255,0.18);border-radius:4px;padding:1px 7px;font-size:10px;letter-spacing:.3px;font-weight:700">v2026.04.16</span></p>
+    <h1>🏗️ <span style="font-weight:800">넷폼</span> <span style="font-weight:600;opacity:.92">대금관리 시스템</span></h1>
+    <p>공고 / 컨설팅 / 기술자재형 / 자재판매형 / 기타 &nbsp;<span style="background:rgba(255,255,255,0.18);border-radius:4px;padding:1px 7px;font-size:10px;letter-spacing:.3px;font-weight:700">v2026.04.16</span></p>
   </div>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
     <div style="font-size:12px;color:#c7d2fe" id="today-date"></div>
@@ -579,7 +579,7 @@ input[type="url"], input[type="password"]{
   <div class="modal" style="max-width:420px">
     <div style="padding:32px 32px 24px;text-align:center">
       <div style="font-size:48px;margin-bottom:8px">🔐</div>
-      <h2 style="font-size:18px;font-weight:700;color:#1f2937;margin-bottom:6px">대금청구 자동화 시스템</h2>
+      <h2 style="font-size:18px;font-weight:700;color:#1f2937;margin-bottom:6px">넷폼 대금관리 시스템</h2>
       <p style="font-size:12px;color:#6b7280">로그인 후 사용하실 수 있습니다</p>
     </div>
     <div style="padding:0 32px 28px">
@@ -1131,7 +1131,10 @@ function toggleKpiException(pid){
 function addKpiException(pidStr){
   const pid = Number(pidStr); if(!pid) return;
   const p = projects.find(x=>x.id===pid); if(!p) return;
-  p.kpiExcluded = true; saveData(); renderPage(currentTab);
+  p.kpiExcluded = true;
+  const inp = document.getElementById("kpiExcSearch"); if(inp) inp.value="";
+  const box = document.getElementById("kpiExcResults"); if(box) box.style.display="none";
+  saveData(); renderPage(currentTab);
 }
 
 // ════════ KPI 월 기록 · 전월대비 · 추이 ════════
@@ -1317,18 +1320,50 @@ function kpiExceptionSettingsCard(){
   const chips = excluded.length===0
     ? `<span style="font-size:12px;color:#9ca3af">지정된 예외 현장이 없습니다.</span>`
     : excluded.map(p=>`<span style="display:inline-flex;align-items:center;gap:5px;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:7px;padding:4px 9px;font-size:12px;margin:0 6px 6px 0">${p.aptName||p.customerName}<span onclick="toggleKpiException(${p.id})" style="cursor:pointer;color:#dc2626;font-weight:700" title="제외 해제">✕</span></span>`).join("");
-  const opts = candidates.map(p=>`<option value="${p.id}">${p.aptName||p.customerName}${(p.customerName&&p.aptName)?` (${p.customerName})`:""}</option>`).join("");
   return `<div class="card" style="margin-top:16px">
     <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:6px;display:flex;align-items:center;gap:6px">🚫 KPI 예외 현장 <span style="font-size:11px;font-weight:400;color:#9ca3af">(대금관리 KPI 합산에서 제외)</span></div>
     <div style="font-size:12px;color:#6b7280;margin-bottom:12px">분쟁·발주처 기성 의존 등 특수 현장을 KPI 계산에서 제외합니다. 제외해도 데이터·미수 관리에는 영향 없습니다.</div>
-    <select onchange="addKpiException(this.value);this.value=''" style="font-size:12px;padding:7px 10px;border:1px solid #d1d5db;border-radius:8px;background:#fff;margin-bottom:12px;width:100%;max-width:340px">
-      <option value="">+ 예외 현장 추가</option>
-      ${opts}
-    </select>
+    <div style="position:relative;max-width:340px;margin-bottom:12px">
+      <input id="kpiExcSearch" type="text" autocomplete="off" placeholder="🔍 현장명·고객사 검색 후 선택"
+        oninput="renderKpiExcResults(this.value)" onfocus="renderKpiExcResults(this.value)"
+        style="font-size:12px;padding:7px 10px;border:1px solid #d1d5db;border-radius:8px;background:#fff;width:100%;box-sizing:border-box">
+      <div id="kpiExcResults" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:30;background:#fff;border:1px solid #d1d5db;border-top:none;border-radius:0 0 8px 8px;max-height:220px;overflow-y:auto;box-shadow:0 6px 16px rgba(0,0,0,.08)"></div>
+    </div>
     <div style="font-size:11px;font-weight:600;color:#9ca3af;margin-bottom:6px">현재 예외 현장 (${excluded.length})</div>
     <div>${chips}</div>
   </div>`;
 }
+// 검색 결과 렌더링 (예외 현장 후보 필터)
+function renderKpiExcResults(q){
+  const box = document.getElementById("kpiExcResults");
+  if(!box) return;
+  const term = (q||"").trim().toLowerCase();
+  const candidates = projects.filter(p=>!p.kpiExcluded);
+  let list = candidates;
+  if(term){
+    list = candidates.filter(p=>{
+      const a=(p.aptName||"").toLowerCase(), c=(p.customerName||"").toLowerCase();
+      return a.includes(term) || c.includes(term);
+    });
+  }
+  if(list.length===0){
+    box.innerHTML = `<div style="padding:9px 11px;font-size:12px;color:#9ca3af">${term?"일치하는 현장이 없습니다.":"추가할 현장이 없습니다."}</div>`;
+    box.style.display = "block";
+    return;
+  }
+  box.innerHTML = list.slice(0,50).map(p=>{
+    const sub = (p.customerName&&p.aptName) ? ` <span style="color:#9ca3af;font-size:11px">(${p.customerName})</span>` : "";
+    return `<div onclick="addKpiException(${p.id})" style="padding:8px 11px;font-size:12px;color:#374151;cursor:pointer;border-bottom:1px solid #f3f4f6"
+      onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='#fff'">${p.aptName||p.customerName}${sub}</div>`;
+  }).join("") + (list.length>50?`<div style="padding:7px 11px;font-size:11px;color:#9ca3af">…외 ${list.length-50}곳. 검색어를 입력해 좁혀주세요.</div>`:"");
+  box.style.display = "block";
+}
+// 바깥 클릭 시 결과 닫기
+document.addEventListener("click", function(e){
+  const box = document.getElementById("kpiExcResults");
+  const inp = document.getElementById("kpiExcSearch");
+  if(box && inp && !box.contains(e.target) && e.target!==inp){ box.style.display="none"; }
+});
 
 // ═══════ 차트 헬퍼: 도넛 · 반원 게이지 · 현장 개요 (복구) ═══════
 function _kpiDonut(segs, centerTop, centerMain){
@@ -4632,10 +4667,16 @@ function jumpToOrderAndExpand(pid){
 //   · 여기선 계산서발행 / 입금 / 독촉 / 발행취소만 관리 ("관리만 이전")
 // ════════════════════════════════════════════
 let _patentFilter = "unpaid";  // all(전체) | unpaid(미수현장, 기본) | noinv(계산서 미발행) | done(완료현장)
+let _patentSearch = "";        // 업체명·현장명 검색어
 
 function setPatentFilter(f){
   _patentFilter = f || "unpaid";
   if (currentTab === 5) renderPage(currentTab);
+}
+function setPatentSearch(q){
+  _patentSearch = q || "";
+  // 입력 중 포커스 유지를 위해 전체 리렌더 대신 목록 영역만 갱신
+  if (currentTab === 5) renderPatentRoyalty();
 }
 
 function renderPatentRoyalty(){
@@ -4656,6 +4697,17 @@ function renderPatentRoyalty(){
   else if (_patentFilter === "noinv") view = noinvList;
   else if (_patentFilter === "done") view = doneList;
   else { _patentFilter = "unpaid"; view = unpaidList; }
+
+  // 업체명·현장명 검색 필터
+  const _q = (_patentSearch||"").trim().toLowerCase();
+  if (_q){
+    view = view.filter(b => {
+      const cn = (b.customerName||"").toLowerCase();
+      const an = (b.aptName||"").toLowerCase();
+      const co = (b.constructionName||"").toLowerCase();
+      return cn.includes(_q) || an.includes(_q) || co.includes(_q);
+    });
+  }
 
   // ── 요약 카드 + 필터 (자재주문 탭과 동일한 ord-stat / ord-ftab UI) ──
   const pfOn = (k, cls) => (_patentFilter===k ? (cls||"on") : "");
@@ -4684,13 +4736,16 @@ function renderPatentRoyalty(){
       <button class="ord-ftab ${pfOn('unpaid','on-purple')}" onclick="setPatentFilter('unpaid')">🔖 미수현장</button>
       <button class="ord-ftab ${pfOn('noinv','on-orange')}" onclick="setPatentFilter('noinv')">🧾 계산서 미발행</button>
       <button class="ord-ftab ${pfOn('done','on-green')}" onclick="setPatentFilter('done')">✅ 완료현장</button>
-      <div style="margin-left:auto;font-size:11px;color:var(--gray-400)">기본: 미수현장</div>
+      <input id="patentSearchInput" type="text" autocomplete="off" placeholder="🔍 업체명·현장명 검색"
+        value="${(_patentSearch||"").replace(/"/g,'&quot;')}" oninput="setPatentSearch(this.value)"
+        style="margin-left:auto;font-size:11px;padding:5px 9px;border:1px solid var(--gray-300);border-radius:7px;background:#fff;min-width:150px;font-family:inherit">
     </div>`;
 
   if (view.length === 0){
-    const emptyMsg = _patentFilter==="noinv" ? "계산서 미발행 건이 없습니다." : (_patentFilter==="done" ? "완료된 특허료 건이 없습니다." : (_patentFilter==="all" ? "특허료 청구가 없습니다." : "미수 특허료가 없습니다."));
+    const emptyMsg = _q ? `'${_patentSearch}'에 해당하는 특허료 건이 없습니다.` : (_patentFilter==="noinv" ? "계산서 미발행 건이 없습니다." : (_patentFilter==="done" ? "완료된 특허료 건이 없습니다." : (_patentFilter==="all" ? "특허료 청구가 없습니다." : "미수 특허료가 없습니다.")));
     html += `<div style="text-align:center;padding:30px 0;color:var(--gray-400);font-size:12px">${emptyMsg}</div>`;
     document.getElementById("page-5").innerHTML = html;
+    _restorePatentSearchFocus();
     return;
   }
 
@@ -4763,6 +4818,16 @@ function renderPatentRoyalty(){
   });
 
   document.getElementById("page-5").innerHTML = html;
+  _restorePatentSearchFocus();
+}
+// 검색 입력창 리렌더 후 포커스·커서 위치 복원
+function _restorePatentSearchFocus(){
+  const inp = document.getElementById("patentSearchInput");
+  if(inp && _patentSearch && document.activeElement!==inp){
+    inp.focus();
+    const n = inp.value.length;
+    try { inp.setSelectionRange(n, n); } catch(e){}
+  }
 }
 
 function renderHistory(){
@@ -7656,7 +7721,7 @@ function buildStage2Mail(g) {
     subject: "[넷폼알앤디] " + g.customerName + " 자재 대금 처리 재안내 (" + g.monthLabel + "월 기준)",
     body:
       g.customerName + " 담당자님 안녕하세요.\n넷폼알앤디입니다.\n\n" +
-      "지난 " + (g.monthLabel + 1) + "월 10일 안내해 드린 미결제 대금이 아직 확인되지 않아 다시 한번 안내드립니다.\n" +
+      "지난 " + (g.monthLabel + 1) + "월 10일 안내해 드린 미결제 대금의 입금이 아직 확인되지 않아 다시 한번 안내드립니다.\n" +
       "원활한 결제 관리를 위해 당월 말일까지 대금 처리를 부탁드리며, 현장의 안정적인 자재 수급에 차질이 없도록 협조를 요청드립니다.\n\n" +
       _sitesBlock(g.sites) + _refundsBlock(g.refunds) + "\n\n" +
       "■ " + g.customerName + " 전체 미납 합계: " + _fmtKRW(g.totalUnpaid) + " (공급가액 기준, VAT 별도)\n\n" +
@@ -7673,7 +7738,7 @@ function buildStage2_5Mail(g) {
     subject: "[넷폼알앤디] " + g.customerName + " " + g.monthLabel + "월분 미결제 대금 확정 안내 및 입금 일정 협의 요청",
     body:
       g.customerName + " 담당자님 안녕하세요.\n넷폼알앤디입니다.\n\n" +
-      "당사에서 지난 " + (g.monthLabel + 1) + "월 25일 안내해 드린 입금 기한(말일) 내에 대금 확인이 되지 않아,\n" +
+      "당사에서 지난 " + (g.monthLabel + 1) + "월 25일 안내해 드린 입금 기한(말일) 내에 대금의 입금 확인이 되지 않아,\n" +
       "내부 절차에 따라 해당 건이 '미결제 대금'으로 확정되었음을 알려드립니다.\n\n" +
       _sitesBlock(g.sites) + _refundsBlock(g.refunds) + "\n\n" +
       "■ " + g.customerName + " 전체 미결제 확정 합계: " + _fmtKRW(g.totalUnpaid) + " (공급가액 기준, VAT 별도)\n\n" +
