@@ -2525,11 +2525,12 @@ function renderOrders(){
   const _qv = document.getElementById('ord-quick-input');
   if(_qv) ordQuickVal = _qv.value;
   const all = projects.filter(p => ordShowCompleted || p.status !== "완료");
-  // 필터별 통계용 풀 — ordGetFiltered와 동일 조건 (lump 제외 + 유찰/취소 제외)
+  // 필터별 통계용 풀 — ordGetFiltered와 동일 조건 (lump 제외 + 유찰/취소 제외 + 특허완료 숨김)
   // → 카운트와 리스트가 일치하도록 보장
   const allForStats = all
     .filter(p => getMaterialMode(p) !== "lump")
-    .filter(p => p.status !== "유찰" && p.status !== "취소");
+    .filter(p => p.status !== "유찰" && p.status !== "취소")
+    .filter(p => ordShowPatentDone || !isPatentDoneProject(p));
   const calcs = allForStats.map(p=>({p,c:ordCalc(p)}));
   const completedCnt = projects.filter(p=>p.status==="완료").length;
   // 특허료 청구완료/수금완료로 숨겨진 현장 수 (주문이 있는 현장 기준)
