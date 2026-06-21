@@ -394,6 +394,7 @@ input[type="url"], input[type="password"]{
   <button class="tab-btn" id="tab-btn-7" onclick="showTab(7)" style="color:#16a34a">✅ 완료된 현장</button>
   <button class="tab-btn" style="color:#16a34a;font-weight:600" onclick="downloadMasterExcel()">📊 엑셀 다운로드</button>
   <button class="tab-btn" style="color:#be185d;font-weight:600" onclick="downloadAnnualReport()">📈 연간 분석 리포트</button>
+  <button class="tab-btn" id="tab-btn-9" onclick="showTab(9)" style="color:#4338ca">💳 여신 관리</button>
   <button class="tab-btn" onclick="showTab(8)" style="color:#6b7280">⚙️ 설정</button>
 </div>
 
@@ -407,6 +408,7 @@ input[type="url"], input[type="password"]{
   <div class="page" id="page-6"></div>
   <div class="page" id="page-7"></div>
   <div class="page" id="page-8"></div>
+  <div class="page" id="page-9"></div>
 </div>
 
 <!-- 모달: 프로젝트 등록/수정 -->
@@ -619,6 +621,59 @@ input[type="url"], input[type="password"]{
     <div class="modal-body" id="tb-preview-body" style="padding:0"></div>
   </div>
 </div>
+
+<!-- 여신 설정 모달 -->
+<div class="modal-overlay" id="modal-credit">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header">
+      <h3 id="credit-modal-title">여신 설정</h3>
+      <button class="modal-close" onclick="closeCreditModal()">✕</button>
+    </div>
+    <div class="modal-body" style="padding:18px 20px">
+      <div style="font-size:12px;color:#6b7280;margin-bottom:14px">고객사 단위로 여신을 설정합니다. 해당 고객사의 모든 현장 거래가 합산되어 관리됩니다.</div>
+      <div style="display:flex;gap:14px;margin-bottom:16px">
+        <label style="display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer"><input type="radio" name="credit-type" value="none" onchange="_creditToggleFields()"> 없음</label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer;color:#9d174d"><input type="radio" name="credit-type" value="prepaid" onchange="_creditToggleFields()"> 💳 선급금</label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer;color:#1e40af"><input type="radio" name="credit-type" value="guarantee" onchange="_creditToggleFields()"> 🛡️ 보증보험</label>
+      </div>
+
+      <div id="cr-prepaid-fields" style="display:none;background:#fdf2f8;border:1px solid #fbcfe8;border-radius:10px;padding:14px">
+        <div style="font-size:11px;color:#9d174d;font-weight:700;margin-bottom:10px">선급금 — 입금 후 주문마다 차감(소진형)</div>
+        <label class="cr-lbl">선급 입금액 *</label>
+        <input id="cr-prepaid-total" type="number" step="1000" placeholder="50000000" class="cr-inp">
+        <label class="cr-lbl">입금일</label>
+        <input id="cr-prepaid-dep" type="date" class="cr-inp">
+        <label class="cr-lbl">계산서 발행일 <span style="font-weight:400;color:#9ca3af">(홈택스 발행 후 기록)</span></label>
+        <input id="cr-prepaid-inv" type="date" class="cr-inp">
+        <label class="cr-lbl">계산서 승인번호 <span style="font-weight:400;color:#9ca3af">(선택)</span></label>
+        <input id="cr-prepaid-invno" type="text" placeholder="20260401-..." class="cr-inp">
+      </div>
+
+      <div id="cr-guarantee-fields" style="display:none;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:14px">
+        <div style="font-size:11px;color:#1e40af;font-weight:700;margin-bottom:10px">보증보험 — 한도 내 외상, 입금 시 한도 회복(회전형)</div>
+        <label class="cr-lbl">보험사</label>
+        <input id="cr-guar-insurer" type="text" placeholder="서울보증보험" class="cr-inp">
+        <label class="cr-lbl">증권번호</label>
+        <input id="cr-guar-policy" type="text" placeholder="..." class="cr-inp">
+        <label class="cr-lbl">보험금액 (한도) *</label>
+        <input id="cr-guar-cover" type="number" step="1000" placeholder="50000000" class="cr-inp">
+        <div style="display:flex;gap:10px">
+          <div style="flex:1"><label class="cr-lbl">보험 시작일</label><input id="cr-guar-start" type="date" class="cr-inp"></div>
+          <div style="flex:1"><label class="cr-lbl">보험 만기일</label><input id="cr-guar-end" type="date" class="cr-inp"></div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:18px;justify-content:flex-end">
+        <button class="btn btn-sm" style="background:#f3f4f6;color:#374151" onclick="closeCreditModal()">취소</button>
+        <button class="btn btn-sm" style="background:#4338ca;color:#fff;font-weight:700;padding:7px 16px" onclick="saveCreditSetting()">저장</button>
+      </div>
+    </div>
+  </div>
+</div>
+<style>
+  #modal-credit .cr-lbl{ display:block; font-size:11px; font-weight:600; color:#4b5563; margin:8px 0 4px }
+  #modal-credit .cr-inp{ width:100%; box-sizing:border-box; font-size:12px; padding:7px 10px; border:1px solid #d1d5db; border-radius:7px; font-family:inherit; outline:none }
+</style>
 
 <!-- 자재주문 날짜 팝오버 -->
 <div id="ord-popover" class="ord-popover">
@@ -953,14 +1008,21 @@ function cleanNum(v){
 // ── 탭 ──
 function showTab(i){
   currentTab=i;
-  document.querySelectorAll('.tab-btn').forEach((b,idx)=>b.classList.toggle('active',idx===i));
-  document.querySelectorAll('.page').forEach((p,idx)=>p.classList.toggle('active',idx===i));
+  document.querySelectorAll('.tab-btn').forEach(b=>{
+    const oc = b.getAttribute('onclick')||'';
+    const m = oc.match(/showTab\((\d+)\)/);
+    b.classList.toggle('active', m && Number(m[1])===i);
+  });
+  document.querySelectorAll('.page').forEach(p=>{
+    const m = (p.id||'').match(/page-(\d+)/);
+    p.classList.toggle('active', m && Number(m[1])===i);
+  });
   renderPage(i);
   updateCompletedTabBadge();
 }
 
 function renderPage(i){
-  const fns=[renderDashboard,renderProjects,renderOrders,renderBilling,renderUnpaid,renderPatentRoyalty,renderExcelImport,renderCompleted,renderSettings];
+  const fns=[renderDashboard,renderProjects,renderOrders,renderBilling,renderUnpaid,renderPatentRoyalty,renderExcelImport,renderCompleted,renderSettings,renderCreditManagement];
   if(fns[i])fns[i]();
 }
 
@@ -974,6 +1036,122 @@ function confirmBilling(pid){
   p.billingConfirmed = true;
   saveData();
   renderDashboard();
+}
+
+// ════════ 여신관리 (선급금 · 보증보험 · 고객사 단위) ════════
+// companyMaster의 각 회사에 credit 객체를 선택적으로 부착:
+//   선급금:   { type:"prepaid",   total, depositDate, invoiceDate, invoiceNo, ledger:[] }
+//   보증보험: { type:"guarantee", insurer, policyNo, coverAmount, startDate, endDate }
+// 미입금 합산은 고객사명(companyMaster.name === project.customerName)으로 매칭.
+
+// 특정 고객사의 자재 미입금 잔액 합산 (모든 현장 합산, 선급차감분 제외)
+function creditOutstandingByCompany(companyName){
+  let outstanding = 0;
+  (projects||[]).forEach(p => {
+    if(p.customerName !== companyName) return;
+    (p.orders||[]).forEach(o => {
+      const amt = Number(o.amount)||0; if(amt<=0) return;
+      const prepaid = Number(o.prepaidApplied)||0;
+      const billable = (o.settlement==="선급차감") ? 0
+                     : (o.settlement==="분할") ? Math.max(0, amt - prepaid)
+                     : amt;
+      const paid = getOrderPaidAmount(o);
+      const remain = Math.max(0, billable - paid);
+      outstanding += remain;
+    });
+  });
+  return outstanding;
+}
+
+// 보증보험 잔여 한도 = 보험금액 − 미입금 잔액 (실시간)
+function creditGuaranteeRemaining(company){
+  const c = company.credit;
+  if(!c || c.type!=="guarantee") return null;
+  const cover = Number(c.coverAmount)||0;
+  const outstanding = creditOutstandingByCompany(company.name);
+  return { cover, outstanding, remaining: cover - outstanding,
+           usedPct: cover>0 ? Math.min(100, Math.round(outstanding/cover*1000)/10) : 0 };
+}
+
+// 선급금 잔액 = 입금액 − 누적 차감액 (소진형, 회복 안 됨)
+function creditPrepaidStatus(company){
+  const c = company.credit;
+  if(!c || c.type!=="prepaid") return null;
+  const total = Number(c.total)||0;
+  let consumed = 0;
+  (projects||[]).forEach(p => {
+    if(p.customerName !== company.name) return;
+    (p.orders||[]).forEach(o => {
+      consumed += Number(o.prepaidApplied)||0;
+    });
+  });
+  return { total, consumed, remaining: Math.max(0, total - consumed),
+           usedPct: total>0 ? Math.min(100, Math.round(consumed/total*1000)/10) : 0 };
+}
+
+// 보험 만기까지 남은 일수 (음수면 만료)
+function creditDaysToExpiry(company){
+  const c = company.credit;
+  if(!c || c.type!=="guarantee" || !c.endDate) return null;
+  const end = new Date(c.endDate); const today = new Date();
+  end.setHours(0,0,0,0); today.setHours(0,0,0,0);
+  return Math.round((end - today)/(1000*60*60*24));
+}
+
+// 여신이 설정된 고객사 목록
+function creditCompanies(){
+  return (companyMaster||[]).filter(c => c.credit && c.credit.type);
+}
+
+// 선급 차감 재계산 (고객사 단위, FIFO·분할). 주문 추가/수정 후 호출.
+// 주문일(date) 오름차순으로 선급을 소진하며 각 주문에 settlement/prepaidApplied 부여.
+function recalcPrepaidForCompany(companyName){
+  const company = (companyMaster||[]).find(c=>c.name===companyName);
+  // 해당 고객사 전체 주문 수집
+  const allOrders = [];
+  (projects||[]).forEach(p => {
+    if(p.customerName !== companyName) return;
+    (p.orders||[]).forEach(o => allOrders.push(o));
+  });
+  // 선급이 아니면 모든 차감 표시 제거 (일반 거래로 환원)
+  if(!company || !company.credit || company.credit.type!=='prepaid'){
+    allOrders.forEach(o => { delete o.settlement; delete o.prepaidApplied; });
+    return;
+  }
+  // 주문일 오름차순 (date 없으면 id 순)
+  allOrders.sort((a,b)=>{
+    const da=a.date||'', db=b.date||'';
+    if(da!==db) return da<db?-1:1;
+    return (a.id||0)-(b.id||0);
+  });
+  let remaining = Number(company.credit.total)||0;
+  allOrders.forEach(o => {
+    const amt = Number(o.amount)||0;
+    if(remaining<=0){
+      o.settlement = "일반"; o.prepaidApplied = 0;
+    } else if(amt <= remaining){
+      o.settlement = "선급차감"; o.prepaidApplied = amt; remaining -= amt;
+    } else {
+      o.settlement = "분할"; o.prepaidApplied = remaining; remaining = 0;
+    }
+  });
+}
+
+// 보증보험 한도 체크 (주문 추가 전 호출). 초과 시 경고 메시지 반환, 정상이면 null.
+function checkGuaranteeBeforeOrder(companyName, newAmount){
+  const company = (companyMaster||[]).find(c=>c.name===companyName);
+  if(!company || !company.credit || company.credit.type!=='guarantee') return null;
+  const g = creditGuaranteeRemaining(company);
+  const after = g.remaining - (Number(newAmount)||0);
+  if(after < 0){
+    return `🛡️ 보증한도 초과 경고\n\n${companyName} 보증보험 잔여 여력: ${fmtNum(g.remaining)}\n이번 주문: ${fmtNum(newAmount)}\n→ 한도를 ${fmtNum(-after)} 초과합니다.\n\n입금받아 한도를 회복한 후 진행하는 것을 권장합니다.\n그래도 주문을 진행하시겠습니까?`;
+  }
+  // 만기 경고
+  const dday = creditDaysToExpiry(company);
+  if(dday!=null && dday<0){
+    return `🛡️ 보험 만료 경고\n\n${companyName} 보증보험이 만료되었습니다 (${-dday}일 경과).\n이 거래는 무보증 외상이 됩니다.\n\n그래도 주문을 진행하시겠습니까?`;
+  }
+  return null;
 }
 
 // ════════ 대금관리 KPI (자재+특허 · 현장단위 예외 · 현재 시점) ════════
@@ -2656,8 +2834,13 @@ function ordSaveInlineAdd(pid){
   if(!amount) return alert("금액을 입력하세요.");
   const p = projects.find(x=>x.id===pid);
   if(!p) return;
+  // 여신: 보증보험 한도 체크 (초과·만료 시 확인)
+  const _warn = checkGuaranteeBeforeOrder(p.customerName, amount);
+  if(_warn && !confirm(_warn)) return;
   p.orders.push({id:Date.now(),date,item:"자재",qty:1,unitPrice:amount,amount,invoiceDate,depositDate});
   p.orders.sort((a,b)=>(a.date||"")<(b.date||"")?-1:(a.date||"")>(b.date||"")?1:0);
+  // 여신: 선급 차감 재계산
+  recalcPrepaidForCompany(p.customerName);
   ordInlineAddPid = null;
   ordExpandedIds.delete(pid);
   saveData();
@@ -5687,9 +5870,21 @@ function renderCompanyMasterList(){
   if(!list.length){ el.innerHTML='<div style="text-align:center;padding:12px;color:#9ca3af;font-size:12px">검색 결과 없음</div>'; return; }
   el.innerHTML = list.map((c,i)=>{
     const realIdx = companyMaster.indexOf(c);
+    let creditBadge = '';
+    if(c.credit && c.credit.type==='prepaid'){
+      const st = creditPrepaidStatus(c);
+      creditBadge = `<span style="font-size:10px;font-weight:700;color:#9d174d;background:#fdf2f8;border:1px solid #fbcfe8;border-radius:5px;padding:2px 6px;white-space:nowrap">💳 선급 잔액 ${fmtNum(st?st.remaining:0)}</span>`;
+    } else if(c.credit && c.credit.type==='guarantee'){
+      const g = creditGuaranteeRemaining(c);
+      const dday = creditDaysToExpiry(c);
+      const expWarn = (dday!=null && dday<=30) ? `<span style="color:${dday<0?'#dc2626':'#ea580c'};font-weight:700">${dday<0?'만료':'D-'+dday}</span>` : '';
+      creditBadge = `<span style="font-size:10px;font-weight:700;color:#1e40af;background:#eff6ff;border:1px solid #bfdbfe;border-radius:5px;padding:2px 6px;white-space:nowrap">🛡️ 보증 여력 ${fmtNum(g?g.remaining:0)} ${expWarn}</span>`;
+    }
     return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f9fafb;font-size:12px">
       <span style="flex:1;font-weight:600;color:#374151">${c.name}</span>
-      <span style="flex:1;color:#6b7280">${c.email}</span>
+      <span style="flex:1;color:#6b7280;min-width:0;overflow:hidden;text-overflow:ellipsis">${c.email}</span>
+      ${creditBadge}
+      <button class="btn btn-sm" style="background:#eef2ff;color:#4338ca;border:1px solid #c7d2fe" onclick="openCreditModal(${realIdx})">여신 설정</button>
       <button class="btn btn-red btn-sm" onclick="deleteCompanyMaster(${realIdx})">삭제</button>
     </div>`;
   }).join('');
@@ -5709,6 +5904,221 @@ function deleteCompanyMaster(idx){
   companyMaster.splice(idx,1);
   saveCompanyMaster();
   renderSettings();
+}
+
+// ── 여신 설정 모달 ──
+let _creditEditIdx = null;
+function openCreditModal(idx){
+  _creditEditIdx = idx;
+  const c = companyMaster[idx];
+  const cr = c.credit || {};
+  const type = cr.type || 'none';
+  const ov = document.getElementById('modal-credit');
+  document.getElementById('credit-modal-title').textContent = `여신 설정 — ${c.name}`;
+  // 라디오 세팅
+  document.querySelectorAll('input[name="credit-type"]').forEach(r=>{ r.checked = (r.value===type); });
+  // 선급 필드
+  document.getElementById('cr-prepaid-total').value   = cr.type==='prepaid' ? (cr.total||'') : '';
+  document.getElementById('cr-prepaid-dep').value     = cr.type==='prepaid' ? (cr.depositDate||'') : '';
+  document.getElementById('cr-prepaid-inv').value     = cr.type==='prepaid' ? (cr.invoiceDate||'') : '';
+  document.getElementById('cr-prepaid-invno').value   = cr.type==='prepaid' ? (cr.invoiceNo||'') : '';
+  // 보증 필드
+  document.getElementById('cr-guar-insurer').value    = cr.type==='guarantee' ? (cr.insurer||'') : '';
+  document.getElementById('cr-guar-policy').value     = cr.type==='guarantee' ? (cr.policyNo||'') : '';
+  document.getElementById('cr-guar-cover').value      = cr.type==='guarantee' ? (cr.coverAmount||'') : '';
+  document.getElementById('cr-guar-start').value      = cr.type==='guarantee' ? (cr.startDate||'') : '';
+  document.getElementById('cr-guar-end').value        = cr.type==='guarantee' ? (cr.endDate||'') : '';
+  _creditToggleFields();
+  ov.classList.add('active');
+}
+function _creditToggleFields(){
+  const t = (document.querySelector('input[name="credit-type"]:checked')||{}).value || 'none';
+  document.getElementById('cr-prepaid-fields').style.display   = (t==='prepaid')   ? 'block' : 'none';
+  document.getElementById('cr-guarantee-fields').style.display = (t==='guarantee') ? 'block' : 'none';
+}
+function closeCreditModal(){ document.getElementById('modal-credit').classList.remove('active'); _creditEditIdx=null; }
+function saveCreditSetting(){
+  if(_creditEditIdx==null) return;
+  const c = companyMaster[_creditEditIdx];
+  const t = (document.querySelector('input[name="credit-type"]:checked')||{}).value || 'none';
+  if(t==='none'){
+    delete c.credit;
+  } else if(t==='prepaid'){
+    const total = Number((document.getElementById('cr-prepaid-total').value||'').replace(/[^0-9.-]/g,''))||0;
+    if(total<=0){ alert('선급 입금액을 입력하세요.'); return; }
+    c.credit = {
+      type:'prepaid',
+      total,
+      depositDate: document.getElementById('cr-prepaid-dep').value||'',
+      invoiceDate: document.getElementById('cr-prepaid-inv').value||'',
+      invoiceNo:   document.getElementById('cr-prepaid-invno').value||''
+    };
+  } else if(t==='guarantee'){
+    const cover = Number((document.getElementById('cr-guar-cover').value||'').replace(/[^0-9.-]/g,''))||0;
+    if(cover<=0){ alert('보험금액을 입력하세요.'); return; }
+    c.credit = {
+      type:'guarantee',
+      insurer:    document.getElementById('cr-guar-insurer').value||'',
+      policyNo:   document.getElementById('cr-guar-policy').value||'',
+      coverAmount: cover,
+      startDate:  document.getElementById('cr-guar-start').value||'',
+      endDate:    document.getElementById('cr-guar-end').value||''
+    };
+  }
+  saveCompanyMaster();
+  closeCreditModal();
+  renderSettings();
+  if(typeof window._showSaved==='function') window._showSaved(`💳 ${c.name} 여신 설정 저장됨`);
+}
+
+// ════════ 여신관리 탭 (현황 모니터링) ════════
+function renderCreditManagement(){
+  const companies = creditCompanies();
+  let html = `<div style="max-width:880px;margin:0 auto">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+      <h2 style="font-size:20px;font-weight:800;color:#1f2937;margin:0">💳 여신 관리</h2>
+      <span style="font-size:12px;color:#9ca3af">고객사 단위 · 실시간 현황</span>
+    </div>
+    <div style="font-size:12px;color:#6b7280;margin-bottom:18px">여신 설정은 <b>설정 ⚙️ → 고객사 마스터</b>에서 변경합니다. 이 화면은 현황 조회 전용입니다.</div>`;
+
+  if(companies.length === 0){
+    html += `<div style="text-align:center;padding:50px 0;color:#9ca3af">
+      <div style="font-size:40px">💳</div>
+      <p style="margin-top:12px;font-size:13px">여신이 설정된 고객사가 없습니다.</p>
+      <button class="btn btn-sm" style="margin-top:10px;background:#4338ca;color:#fff" onclick="showTab(8)">설정으로 이동 →</button>
+    </div></div>`;
+    document.getElementById("page-9").innerHTML = html;
+    return;
+  }
+
+  // 검색
+  html += `<div style="margin-bottom:14px">
+    <input id="creditSearch" type="text" autocomplete="off" placeholder="🔍 고객사명 검색"
+      value="${(_creditSearch||'').replace(/"/g,'&quot;')}" oninput="setCreditSearch(this.value)"
+      style="font-size:12px;padding:7px 11px;border:1px solid #d1d5db;border-radius:8px;width:100%;max-width:300px;box-sizing:border-box;font-family:inherit">
+  </div>`;
+
+  const q = (_creditSearch||'').trim().toLowerCase();
+  const view = q ? companies.filter(c=>c.name.toLowerCase().includes(q)) : companies;
+
+  if(view.length===0){
+    html += `<div style="text-align:center;padding:30px 0;color:#9ca3af;font-size:12px">'${_creditSearch}'에 해당하는 고객사가 없습니다.</div></div>`;
+    document.getElementById("page-9").innerHTML = html;
+    _restoreCreditSearchFocus();
+    return;
+  }
+
+  view.forEach(c => {
+    if(c.credit.type==='prepaid') html += _creditPrepaidCard(c);
+    else if(c.credit.type==='guarantee') html += _creditGuaranteeCard(c);
+  });
+
+  html += `</div>`;
+  document.getElementById("page-9").innerHTML = html;
+  _restoreCreditSearchFocus();
+}
+
+let _creditSearch = "";
+function setCreditSearch(q){ _creditSearch = q||""; if(currentTab===9) renderCreditManagement(); }
+function _restoreCreditSearchFocus(){
+  const inp = document.getElementById("creditSearch");
+  if(inp && _creditSearch && document.activeElement!==inp){
+    inp.focus(); const n=inp.value.length; try{ inp.setSelectionRange(n,n); }catch(e){}
+  }
+}
+
+// 고객사의 현장별 미입금 내역
+function _creditSiteBreakdown(companyName){
+  const rows = [];
+  (projects||[]).forEach(p => {
+    if(p.customerName !== companyName) return;
+    let remain = 0;
+    (p.orders||[]).forEach(o => {
+      const amt=Number(o.amount)||0; if(amt<=0) return;
+      const prepaid=Number(o.prepaidApplied)||0;
+      const billable=(o.settlement==="선급차감")?0:(o.settlement==="분할")?Math.max(0,amt-prepaid):amt;
+      remain += Math.max(0, billable - getOrderPaidAmount(o));
+    });
+    if(remain>0) rows.push({ name:p.aptName||p.customerName, remain });
+  });
+  return rows;
+}
+
+function _gauge(pct, color){
+  const w = Math.max(0, Math.min(100, pct));
+  return `<div style="background:#e5e7eb;border-radius:6px;height:10px;overflow:hidden;margin:6px 0">
+    <div style="width:${w}%;height:100%;background:${color};border-radius:6px"></div></div>`;
+}
+
+function _creditPrepaidCard(c){
+  const st = creditPrepaidStatus(c);
+  const done = st.remaining<=0;
+  const color = done ? '#16a34a' : '#db2777';
+  const invStatus = c.credit.invoiceDate
+    ? `<span style="color:#16a34a">✅ ${c.credit.invoiceDate} 발행${c.credit.invoiceNo?' ('+c.credit.invoiceNo+')':''}</span>`
+    : `<span style="color:#ea580c">⚠️ 발행 대기 (계산서 미기록)</span>`;
+  const sites = _creditSiteBreakdown(c.name);
+  const sitesHtml = sites.length
+    ? sites.map(s=>`<div style="display:flex;justify-content:space-between;font-size:11px;color:#6b7280;padding:2px 0"><span>└ ${s.name}</span><span>${fmtNum(s.remain)}</span></div>`).join('')
+    : `<div style="font-size:11px;color:#9ca3af;padding:2px 0">미입금 현장 없음</div>`;
+  return `<div class="card" style="margin-bottom:14px;border-left:4px solid ${color}">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+      <span style="font-size:15px;font-weight:800;color:#1f2937">${c.name}</span>
+      <span style="font-size:10px;font-weight:700;color:#9d174d;background:#fdf2f8;border-radius:5px;padding:2px 7px">💳 선급금</span>
+      ${done?'<span style="font-size:10px;font-weight:700;color:#16a34a;background:#f0fdf4;border-radius:5px;padding:2px 7px">소진 완료</span>':''}
+    </div>
+    ${_gauge(st.usedPct, color)}
+    <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:10px">
+      <span style="color:#6b7280">선급 <b style="color:#374151">${fmtNum(st.total)}</b></span>
+      <span style="color:#6b7280">차감 <b style="color:#374151">${fmtNum(st.consumed)}</b></span>
+      <span style="color:#6b7280">잔액 <b style="color:${color}">${fmtNum(st.remaining)}</b></span>
+    </div>
+    <div style="font-size:11px;color:#9ca3af;border-top:1px solid #f3f4f6;padding-top:8px">
+      ${sitesHtml}
+      <div style="margin-top:6px">※ 선급 계산서: ${invStatus}</div>
+    </div>
+  </div>`;
+}
+
+function _creditGuaranteeCard(c){
+  const g = creditGuaranteeRemaining(c);
+  const dday = creditDaysToExpiry(c);
+  const over = g.remaining < 0;
+  const color = over ? '#dc2626' : (g.usedPct>=80 ? '#ea580c' : '#2563eb');
+  let expBadge = '';
+  if(dday!=null){
+    if(dday<0) expBadge = `<span style="font-size:10px;font-weight:700;color:#fff;background:#dc2626;border-radius:5px;padding:2px 7px">⚠️ 보험 만료 (${-dday}일 경과)</span>`;
+    else if(dday<=30) expBadge = `<span style="font-size:10px;font-weight:700;color:#ea580c;background:#fff7ed;border-radius:5px;padding:2px 7px">만기 D-${dday} · 갱신 필요</span>`;
+    else expBadge = `<span style="font-size:10px;color:#9ca3af">만기 D-${dday}</span>`;
+  }
+  const sites = _creditSiteBreakdown(c.name);
+  const sitesHtml = sites.length
+    ? sites.map(s=>`<div style="display:flex;justify-content:space-between;font-size:11px;color:#6b7280;padding:2px 0"><span>└ ${s.name}</span><span>${fmtNum(s.remain)}</span></div>`).join('')
+    : `<div style="font-size:11px;color:#9ca3af;padding:2px 0">미입금 현장 없음</div>`;
+  const overWarn = over
+    ? `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:7px;padding:7px 10px;font-size:11px;color:#dc2626;font-weight:600;margin-bottom:8px">⚠️ 한도 초과! 미입금이 보증금액을 ${fmtNum(-g.remaining)} 초과. 입금받아 한도를 회복하세요.</div>`
+    : '';
+  const expWarn = (dday!=null && dday<0 && g.outstanding>0)
+    ? `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:7px;padding:7px 10px;font-size:11px;color:#dc2626;font-weight:600;margin-bottom:8px">⚠️ 무보증 외상 상태! 보험이 만료됐으나 미입금 ${fmtNum(g.outstanding)}이 남아 있습니다.</div>`
+    : '';
+  return `<div class="card" style="margin-bottom:14px;border-left:4px solid ${color}">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
+      <span style="font-size:15px;font-weight:800;color:#1f2937">${c.name}</span>
+      <span style="font-size:10px;font-weight:700;color:#1e40af;background:#eff6ff;border-radius:5px;padding:2px 7px">🛡️ 보증보험</span>
+      ${expBadge}
+      ${c.credit.insurer?`<span style="font-size:10px;color:#9ca3af">${c.credit.insurer}${c.credit.policyNo?' · '+c.credit.policyNo:''}</span>`:''}
+    </div>
+    ${overWarn}${expWarn}
+    ${_gauge(g.usedPct, color)}
+    <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:10px">
+      <span style="color:#6b7280">보험 <b style="color:#374151">${fmtNum(g.cover)}</b></span>
+      <span style="color:#6b7280">미입금 <b style="color:#374151">${fmtNum(g.outstanding)}</b></span>
+      <span style="color:#6b7280">여력 <b style="color:${color}">${fmtNum(g.remaining)}</b></span>
+    </div>
+    <div style="font-size:11px;color:#9ca3af;border-top:1px solid #f3f4f6;padding-top:8px">
+      ${sitesHtml}
+    </div>
+  </div>`;
 }
 
 function renderSettings(){
