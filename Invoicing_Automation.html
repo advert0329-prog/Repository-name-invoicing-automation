@@ -9578,6 +9578,7 @@ function getDunningContext() {
 
 // ── Firebase 동기화 ──
 let _fbDb = null, _fbRef = null, _fbListening = false, _fbIgnoreNext = false;
+let _remoteState = { projects:{}, allBills:{}, companyMaster:"", kpiSnapshots:"" };
 
 function fbLoadConfig(){ try{ return JSON.parse(localStorage.getItem(FB_CONFIG_KEY)||"null"); }catch(e){ return null; } }
 function fbSaveConfig(cfg){ localStorage.setItem(FB_CONFIG_KEY, JSON.stringify(cfg)); }
@@ -9592,12 +9593,41 @@ async function fbInit(cfg){
   }catch(e){ console.error("Firebase 초기화 오류:", e); return false; }
 }
 
+// ───────── 변경분만 동기화 (per-record) — 동시 사용 충돌 방지 ─────────
+// 저장 구조: netform_app/data/{projects/{id}, allBills/{id}, companyMaster, kpiSnapshots, _savedAt}
+// fbSave는 직전 동기화 시점(_remoteState) 대비 '바뀐 레코드만' update() → 다른 사람이 만진 레코드는 건드리지 않음
+function _recKey(o,i){ if(o && o.id==null) o.id = Date.now()+Math.floor(Math.random()*100000); return o&&o.id!=null ? String(o.id) : ("idx_"+i); }
+function _mapToArr(x){ if(!x) return []; if(Array.isArray(x)) return x.filter(v=>v!=null); return Object.values(x).filter(v=>v!=null); }
+function _arrToMap(arr){ const m={}; (arr||[]).forEach((o,i)=>{ if(o==null) return; m[_recKey(o,i)]=o; }); return m; }
+function _captureRemoteState(){
+  _remoteState = { projects:{}, allBills:{}, companyMaster:JSON.stringify(companyMaster||null), kpiSnapshots:JSON.stringify(kpiSnapshots||{}) };
+  projects.forEach((p,i)=>{ _remoteState.projects[_recKey(p,i)] = JSON.stringify(p); });
+  allBills.forEach((b,i)=>{ _remoteState.allBills[_recKey(b,i)] = JSON.stringify(b); });
+}
+
 async function fbSave(){
   if(!_fbRef) return;
   try{
+    const updates = {};
+    // 현장: 직전 동기화 대비 추가/변경된 것만
+    const seenP = {};
+    projects.forEach((p,i)=>{ const k=_recKey(p,i); seenP[k]=true; const cur=JSON.stringify(p); if(_remoteState.projects[k]!==cur) updates["projects/"+k]=p; });
+    for(const k in _remoteState.projects){ if(!seenP[k]) updates["projects/"+k]=null; }   // 삭제된 현장
+    // 특허료 청구서: 동일 방식
+    const seenB = {};
+    allBills.forEach((b,i)=>{ const k=_recKey(b,i); seenB[k]=true; const cur=JSON.stringify(b); if(_remoteState.allBills[k]!==cur) updates["allBills/"+k]=b; });
+    for(const k in _remoteState.allBills){ if(!seenB[k]) updates["allBills/"+k]=null; }
+    // 거래처마스터 / KPI기록: 바뀐 경우에만 통째로
+    const cmStr=JSON.stringify(companyMaster||null); if(_remoteState.companyMaster!==cmStr) updates["companyMaster"]=companyMaster;
+    const ksStr=JSON.stringify(kpiSnapshots||{}); if(_remoteState.kpiSnapshots!==ksStr) updates["kpiSnapshots"]=kpiSnapshots;
+
+    const n = Object.keys(updates).length;
+    if(n===0) return;                       // 변경 없음 → 네트워크 호출 안 함
+    updates["_savedAt"] = Date.now();
     _fbIgnoreNext = true;
-    await _fbRef.set({ projects, allBills, companyMaster, kpiSnapshots, _savedAt: Date.now() });
-    fbShowStatus("☁️ 클라우드 저장됨", "#16a34a");
+    await _fbRef.update(updates);
+    _captureRemoteState();
+    fbShowStatus("☁️ 변경분 저장됨 ("+n+")", "#16a34a");
   }catch(e){ fbShowStatus("⚠️ 클라우드 저장 실패", "#dc2626"); console.warn("fbSave error:", e); }
 }
 
@@ -9605,12 +9635,19 @@ async function fbLoad(){
   if(!_fbRef) return false;
   try{
     const snap = await _fbRef.get();
-    if(!snap.exists()) return false;
+    if(!snap.exists()){ _captureRemoteState(); return false; }
     const d = snap.val();
-    if(d.projects) projects = d.projects;
-    if(d.allBills) allBills = d.allBills; if(d.kpiSnapshots) kpiSnapshots = d.kpiSnapshots;
-    if(d.companyMaster) { companyMaster = d.companyMaster; saveCompanyMaster(); }
+    const oldFormat = Array.isArray(d.projects) || Array.isArray(d.allBills);  // 옛 배열(blob) 구조 감지
+    if(d.projects!==undefined) projects = _mapToArr(d.projects);
+    if(d.allBills!==undefined) allBills = _mapToArr(d.allBills);
+    if(d.kpiSnapshots) kpiSnapshots = d.kpiSnapshots;
+    if(d.companyMaster){ companyMaster = d.companyMaster; saveCompanyMaster(); }
     normalizeData();
+    _captureRemoteState();
+    if(oldFormat){   // 1회 마이그레이션: 배열 → id 키 맵 (이후부터 per-record 저장)
+      try{ await _fbRef.update({ projects:_arrToMap(projects), allBills:_arrToMap(allBills), _savedAt:Date.now() });
+           _captureRemoteState(); fbShowStatus("☁️ 동기화 구조 업그레이드 완료", "#16a34a"); }catch(_){}
+    }
     return true;
   }catch(e){ console.warn("fbLoad error:", e); return false; }
 }
@@ -9619,16 +9656,20 @@ function fbListen(){
   if(!_fbRef || _fbListening) return;
   _fbListening = true;
   _fbRef.on("value", snap => {
-    if(_fbIgnoreNext){ _fbIgnoreNext = false; return; }
+    const own = _fbIgnoreNext; _fbIgnoreNext = false;   // 내 저장의 메아리면 own=true
     if(!snap.exists()) return;
     const d = snap.val();
-    if(d.projects) projects = d.projects;
-    if(d.allBills) allBills = d.allBills; if(d.kpiSnapshots) kpiSnapshots = d.kpiSnapshots;
+    projects = _mapToArr(d.projects);
+    allBills = _mapToArr(d.allBills);
+    if(d.kpiSnapshots) kpiSnapshots = d.kpiSnapshots;
     if(d.companyMaster){ companyMaster = d.companyMaster; saveCompanyMaster(); }
     normalizeData();
+    _captureRemoteState();
     try{ localStorage.setItem(SAVE_KEY, JSON.stringify({projects, allBills, kpiSnapshots})); }catch(_){}
-    renderPage(currentTab);
-    fbShowStatus("🔄 다른 기기에서 변경 반영됨", "#4338ca");
+    if(!own){   // 다른 기기 변경일 때만 화면 갱신 + 알림
+      renderPage(currentTab);
+      fbShowStatus("🔄 다른 기기에서 변경 반영됨", "#4338ca");
+    }
   });
 }
 
