@@ -9608,26 +9608,9 @@ function _captureRemoteState(){
 async function fbSave(){
   if(!_fbRef) return;
   try{
-    const updates = {};
-    // 현장: 직전 동기화 대비 추가/변경된 것만
-    const seenP = {};
-    projects.forEach((p,i)=>{ const k=_recKey(p,i); seenP[k]=true; const cur=JSON.stringify(p); if(_remoteState.projects[k]!==cur) updates["projects/"+k]=p; });
-    for(const k in _remoteState.projects){ if(!seenP[k]) updates["projects/"+k]=null; }   // 삭제된 현장
-    // 특허료 청구서: 동일 방식
-    const seenB = {};
-    allBills.forEach((b,i)=>{ const k=_recKey(b,i); seenB[k]=true; const cur=JSON.stringify(b); if(_remoteState.allBills[k]!==cur) updates["allBills/"+k]=b; });
-    for(const k in _remoteState.allBills){ if(!seenB[k]) updates["allBills/"+k]=null; }
-    // 거래처마스터 / KPI기록: 바뀐 경우에만 통째로
-    const cmStr=JSON.stringify(companyMaster||null); if(_remoteState.companyMaster!==cmStr) updates["companyMaster"]=companyMaster;
-    const ksStr=JSON.stringify(kpiSnapshots||{}); if(_remoteState.kpiSnapshots!==ksStr) updates["kpiSnapshots"]=kpiSnapshots;
-
-    const n = Object.keys(updates).length;
-    if(n===0) return;                       // 변경 없음 → 네트워크 호출 안 함
-    updates["_savedAt"] = Date.now();
     _fbIgnoreNext = true;
-    await _fbRef.update(updates);
-    _captureRemoteState();
-    fbShowStatus("☁️ 변경분 저장됨 ("+n+")", "#16a34a");
+    await _fbRef.set({ projects, allBills, companyMaster, kpiSnapshots, _savedAt: Date.now() });
+    fbShowStatus("☁️ 클라우드 저장됨", "#16a34a");
   }catch(e){ fbShowStatus("⚠️ 클라우드 저장 실패", "#dc2626"); console.warn("fbSave error:", e); }
 }
 
@@ -9635,19 +9618,13 @@ async function fbLoad(){
   if(!_fbRef) return false;
   try{
     const snap = await _fbRef.get();
-    if(!snap.exists()){ _captureRemoteState(); return false; }
+    if(!snap.exists()) return false;
     const d = snap.val();
-    const oldFormat = Array.isArray(d.projects) || Array.isArray(d.allBills);  // 옛 배열(blob) 구조 감지
-    if(d.projects!==undefined) projects = _mapToArr(d.projects);
+    if(d.projects!==undefined) projects = _mapToArr(d.projects);   // 배열·맵 모두 안전
     if(d.allBills!==undefined) allBills = _mapToArr(d.allBills);
     if(d.kpiSnapshots) kpiSnapshots = d.kpiSnapshots;
     if(d.companyMaster){ companyMaster = d.companyMaster; saveCompanyMaster(); }
     normalizeData();
-    _captureRemoteState();
-    if(oldFormat){   // 1회 마이그레이션: 배열 → id 키 맵 (이후부터 per-record 저장)
-      try{ await _fbRef.update({ projects:_arrToMap(projects), allBills:_arrToMap(allBills), _savedAt:Date.now() });
-           _captureRemoteState(); fbShowStatus("☁️ 동기화 구조 업그레이드 완료", "#16a34a"); }catch(_){}
-    }
     return true;
   }catch(e){ console.warn("fbLoad error:", e); return false; }
 }
@@ -9656,7 +9633,7 @@ function fbListen(){
   if(!_fbRef || _fbListening) return;
   _fbListening = true;
   _fbRef.on("value", snap => {
-    const own = _fbIgnoreNext; _fbIgnoreNext = false;   // 내 저장의 메아리면 own=true
+    if(_fbIgnoreNext){ _fbIgnoreNext = false; return; }
     if(!snap.exists()) return;
     const d = snap.val();
     projects = _mapToArr(d.projects);
@@ -9664,12 +9641,9 @@ function fbListen(){
     if(d.kpiSnapshots) kpiSnapshots = d.kpiSnapshots;
     if(d.companyMaster){ companyMaster = d.companyMaster; saveCompanyMaster(); }
     normalizeData();
-    _captureRemoteState();
     try{ localStorage.setItem(SAVE_KEY, JSON.stringify({projects, allBills, kpiSnapshots})); }catch(_){}
-    if(!own){   // 다른 기기 변경일 때만 화면 갱신 + 알림
-      renderPage(currentTab);
-      fbShowStatus("🔄 다른 기기에서 변경 반영됨", "#4338ca");
-    }
+    renderPage(currentTab);
+    fbShowStatus("🔄 다른 기기에서 변경 반영됨", "#4338ca");
   });
 }
 
