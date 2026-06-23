@@ -661,6 +661,8 @@ input[type="url"], input[type="password"]{
           <div style="flex:1"><label class="cr-lbl">보험 시작일</label><input id="cr-guar-start" type="date" class="cr-inp"></div>
           <div style="flex:1"><label class="cr-lbl">보험 만기일</label><input id="cr-guar-end" type="date" class="cr-inp"></div>
         </div>
+        <label class="cr-lbl" style="margin-top:10px">여신 기준일 <span style="font-weight:400;color:#9ca3af">(이 날짜 이전 발행 계산서는 여신금액에서 제외 · 비우면 전체 포함)</span></label>
+        <input id="cr-guar-fromdate" type="date" class="cr-inp">
       </div>
 
       <div style="display:flex;gap:8px;margin-top:18px;justify-content:flex-end">
@@ -1053,10 +1055,14 @@ function confirmBilling(pid){
 // 특정 고객사의 자재 미입금 잔액 합산 (모든 현장 합산, 선급차감분 제외)
 function creditOutstandingByCompany(companyName){
   let outstanding = 0;
+  const _company = (companyMaster||[]).find(c=>c.name===companyName);
+  const _fromDate = (_company && _company.credit && _company.credit.fromDate) || '';
   (projects||[]).forEach(p => {
     if(p.customerName !== companyName) return;
     (p.orders||[]).forEach(o => {
       const amt = Number(o.amount)||0; if(amt<=0) return;
+      // 여신 기준일 이전에 발행된 계산서는 여신금액에서 제외 (계산서 미발행 건은 항상 포함)
+      if(_fromDate && o.invoiceDate && o.invoiceDate < _fromDate) return;
       const prepaid = Number(o.prepaidApplied)||0;
       const billable = (o.settlement==="선급차감") ? 0
                      : (o.settlement==="분할") ? Math.max(0, amt - prepaid)
@@ -4891,8 +4897,8 @@ function setPatentFilter(f){
 function setPatentSearch(q){
   _patentSearch = q || "";
   paginationState.patent = 1;
-  // 입력 중 포커스 유지를 위해 전체 리렌더 대신 목록 영역만 갱신
-  if (currentTab === 5) renderPatentRoyalty();
+  // 입력칸은 그대로 두고 목록 영역만 갱신 → 한글 입력(조합) 안 깨짐
+  if (currentTab === 5) renderPatentList();
 }
 
 function renderPatentRoyalty(){
@@ -4956,15 +4962,40 @@ function renderPatentRoyalty(){
         value="${(_patentSearch||"").replace(/"/g,'&quot;')}" oninput="setPatentSearch(this.value)"
         style="margin-left:auto;font-size:11px;padding:5px 9px;border:1px solid var(--gray-300);border-radius:7px;background:#fff;min-width:150px;font-family:inherit">
     </div>`;
+  html += `<div id="patent-list">${_patentListHTML()}</div>`;
+  document.getElementById("page-5").innerHTML = html;
+  _restorePatentSearchFocus();
+}
+
+function _patentListHTML(){
+  const all = (allBills||[]).filter(b => isPatentBillType(b.type));
+  const sum = arr => arr.reduce((s,b)=>s+(Number(b.amount)||0),0);
+  const unpaidList = all.filter(b => b.status !== "수금완료");   // 미수 (기본)
+  const noinvList  = all.filter(b => !b.invoiceDate);           // 계산서 미발행
+  const doneList   = all.filter(b => b.status === "수금완료");   // 수금완료
+
+  let view;
+  if (_patentFilter === "all") view = all;
+  else if (_patentFilter === "noinv") view = noinvList;
+  else if (_patentFilter === "done") view = doneList;
+  else { _patentFilter = "unpaid"; view = unpaidList; }
+
+  // 업체명·현장명 검색 필터
+  const _q = (_patentSearch||"").trim().toLowerCase();
+  if (_q){
+    view = view.filter(b => {
+      const cn = (b.customerName||"").toLowerCase();
+      const an = (b.aptName||"").toLowerCase();
+      const co = (b.constructionName||"").toLowerCase();
+      return cn.includes(_q) || an.includes(_q) || co.includes(_q);
+    });
+  }
 
   if (view.length === 0){
     const emptyMsg = _q ? `'${_patentSearch}'에 해당하는 특허료 건이 없습니다.` : (_patentFilter==="noinv" ? "계산서 미발행 건이 없습니다." : (_patentFilter==="done" ? "완료된 특허료 건이 없습니다." : (_patentFilter==="all" ? "특허료 청구가 없습니다." : "미수 특허료가 없습니다.")));
-    html += `<div style="text-align:center;padding:30px 0;color:var(--gray-400);font-size:12px">${emptyMsg}</div>`;
-    document.getElementById("page-5").innerHTML = html;
-    _restorePatentSearchFocus();
-    return;
+    return `<div style="text-align:center;padding:30px 0;color:var(--gray-400);font-size:12px">${emptyMsg}</div>`;
   }
-
+  let html = "";
   // 현장(projectId)별 그룹
   const groups = {};
   view.forEach(b => {
@@ -5037,9 +5068,12 @@ function renderPatentRoyalty(){
   });
 
   html += renderPagination("patent", _pinfo, "renderPatentRoyalty");
+  return html;
+}
 
-  document.getElementById("page-5").innerHTML = html;
-  _restorePatentSearchFocus();
+function renderPatentList(){
+  const el = document.getElementById("patent-list");
+  if(el) el.innerHTML = _patentListHTML();   // 입력칸 유지(한글 조합 보존) — 목록만 갱신
 }
 // 검색 입력창 리렌더 후 포커스·커서 위치 복원
 function _restorePatentSearchFocus(){
@@ -5966,6 +6000,7 @@ function openCreditModal(idx){
   document.getElementById('cr-guar-cover').value      = cr.type==='guarantee' ? (cr.coverAmount||'') : '';
   document.getElementById('cr-guar-start').value      = cr.type==='guarantee' ? (cr.startDate||'') : '';
   document.getElementById('cr-guar-end').value        = cr.type==='guarantee' ? (cr.endDate||'') : '';
+  document.getElementById('cr-guar-fromdate').value   = cr.type==='guarantee' ? (cr.fromDate||'') : '';
   _creditToggleFields();
   ov.classList.add('open');
 }
@@ -6000,7 +6035,8 @@ function saveCreditSetting(){
       policyNo:   document.getElementById('cr-guar-policy').value||'',
       coverAmount: cover,
       startDate:  document.getElementById('cr-guar-start').value||'',
-      endDate:    document.getElementById('cr-guar-end').value||''
+      endDate:    document.getElementById('cr-guar-end').value||'',
+      fromDate:   document.getElementById('cr-guar-fromdate').value||''
     };
   }
   // 여신 설정 변경 시 해당 고객사의 선급 차감 즉시 재계산 (기존 주문에도 소급 적용)
@@ -6294,18 +6330,6 @@ function buildSettingsHtml(){
     <div id="roadmap-pdf-section">${roadmapSection}</div>
     <input type="file" id="roadmap-pdf-input" accept=".pdf" style="display:none"
       onchange="handleRoadmapPdfUpload(this)"/>
-  </div>
-
-  <!-- 자문료 청구서 엑셀 템플릿 -->
-  <div class="card">
-    <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:14px;display:flex;align-items:center;gap:6px">
-      📑 자문료 청구서 엑셀 템플릿
-      <span style="font-size:11px;font-weight:400;color:#9ca3af">(특허료 요청서 .xlsx)</span>
-    </div>
-    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px 14px;font-size:12px;color:#15803d;line-height:1.6">
-      ✅ 특허료 지급 요청서 양식이 앱에 <b>내장</b>되어 있습니다.<br>
-      자재주문 탭에서 요청서를 발행하면 자동으로 사용되며, <b>별도 업로드가 필요 없습니다.</b>
-    </div>
   </div>
 
   <!-- 공문 엑셀 템플릿 -->
@@ -9599,6 +9623,7 @@ async function fbInit(cfg){
 function _recKey(o,i){ if(o && o.id==null) o.id = Date.now()+Math.floor(Math.random()*100000); return o&&o.id!=null ? String(o.id) : ("idx_"+i); }
 function _mapToArr(x){ if(!x) return []; if(Array.isArray(x)) return x.filter(v=>v!=null); return Object.values(x).filter(v=>v!=null); }
 function _arrToMap(arr){ const m={}; (arr||[]).forEach((o,i)=>{ if(o==null) return; m[_recKey(o,i)]=o; }); return m; }
+function _dedupeById(arr){ const seen=new Set(), out=[]; (arr||[]).forEach(o=>{ const k=(o&&o.id!=null)?String(o.id):null; if(k===null){ out.push(o); return; } if(!seen.has(k)){ seen.add(k); out.push(o); } }); return out; }
 function _captureRemoteState(){
   _remoteState = { projects:{}, allBills:{}, companyMaster:JSON.stringify(companyMaster||null), kpiSnapshots:JSON.stringify(kpiSnapshots||{}) };
   projects.forEach((p,i)=>{ _remoteState.projects[_recKey(p,i)] = JSON.stringify(p); });
@@ -9608,9 +9633,50 @@ function _captureRemoteState(){
 async function fbSave(){
   if(!_fbRef) return;
   try{
+    // 1) 직전 동기화(_remoteState) 대비 '내가 바꾼/추가/삭제한' 레코드만 식별
+    const localP={}; projects.forEach((p,i)=>localP[_recKey(p,i)]=p);
+    const localB={}; allBills.forEach((b,i)=>localB[_recKey(b,i)]=b);
+    const changedP={}, changedB={}, delP={}, delB={};
+    for(const k in localP){ if(_remoteState.projects[k]!==JSON.stringify(localP[k])) changedP[k]=localP[k]; }
+    for(const k in _remoteState.projects){ if(!(k in localP)) delP[k]=1; }
+    for(const k in localB){ if(_remoteState.allBills[k]!==JSON.stringify(localB[k])) changedB[k]=localB[k]; }
+    for(const k in _remoteState.allBills){ if(!(k in localB)) delB[k]=1; }
+    const cmStr=JSON.stringify(companyMaster||null), ksStr=JSON.stringify(kpiSnapshots||{});
+    const cmChanged=_remoteState.companyMaster!==cmStr, ksChanged=_remoteState.kpiSnapshots!==ksStr;
+    const nothing = !Object.keys(changedP).length && !Object.keys(delP).length && !Object.keys(changedB).length && !Object.keys(delB).length && !cmChanged && !ksChanged;
+    if(nothing) return;   // 변경 없음 → 저장 안 함
+
+    // 2) 트랜잭션으로 '최신 원격에 내 변경분만 병합' → 다른 사람이 만진 레코드는 보존(충돌 방지)
     _fbIgnoreNext = true;
-    await _fbRef.set({ projects, allBills, companyMaster, kpiSnapshots, _savedAt: Date.now() });
-    fbShowStatus("☁️ 클라우드 저장됨", "#16a34a");
+    const res = await _fbRef.transaction(current => {
+      current = current || {};
+      const rP={}; _mapToArr(current.projects).forEach(p=>{ if(p&&p.id!=null) rP[String(p.id)]=p; });
+      const rB={}; _mapToArr(current.allBills).forEach(b=>{ if(b&&b.id!=null) rB[String(b.id)]=b; });
+      for(const k in changedP) rP[k]=changedP[k];   // 내 변경 덮어쓰기
+      for(const k in delP) delete rP[k];            // 내 삭제 반영
+      for(const k in changedB) rB[k]=changedB[k];
+      for(const k in delB) delete rB[k];
+      return {
+        projects: _dedupeById(Object.values(rP)),
+        allBills: _dedupeById(Object.values(rB)),
+        companyMaster: cmChanged ? companyMaster : (current.companyMaster!==undefined?current.companyMaster:companyMaster),
+        kpiSnapshots:  ksChanged ? kpiSnapshots  : (current.kpiSnapshots!==undefined?current.kpiSnapshots:kpiSnapshots),
+        _savedAt: Date.now()
+      };
+    }, undefined, false);  // applyLocally=false: 중간 상태 이벤트 억제
+
+    // 3) 트랜잭션 결과(=병합 최종본)를 로컬에 반영
+    if(res && res.committed && res.snapshot && res.snapshot.exists()){
+      const before = JSON.stringify([projects, allBills, companyMaster, kpiSnapshots]);
+      const d = res.snapshot.val();
+      projects = _mapToArr(d.projects); allBills = _mapToArr(d.allBills);
+      if(d.companyMaster!==undefined){ companyMaster=d.companyMaster; saveCompanyMaster(); }
+      if(d.kpiSnapshots!==undefined) kpiSnapshots=d.kpiSnapshots;
+      normalizeData(); _captureRemoteState();
+      try{ localStorage.setItem(SAVE_KEY, JSON.stringify({projects, allBills, kpiSnapshots})); }catch(_){}
+      if(JSON.stringify([projects, allBills, companyMaster, kpiSnapshots])!==before) renderPage(currentTab); // 외부 변경 흡수 시에만 다시 그림
+    }
+    fbShowStatus("☁️ 저장됨", "#16a34a");
   }catch(e){ fbShowStatus("⚠️ 클라우드 저장 실패", "#dc2626"); console.warn("fbSave error:", e); }
 }
 
@@ -9618,13 +9684,14 @@ async function fbLoad(){
   if(!_fbRef) return false;
   try{
     const snap = await _fbRef.get();
-    if(!snap.exists()) return false;
+    if(!snap.exists()){ _captureRemoteState(); return false; }
     const d = snap.val();
     if(d.projects!==undefined) projects = _mapToArr(d.projects);   // 배열·맵 모두 안전
     if(d.allBills!==undefined) allBills = _mapToArr(d.allBills);
     if(d.kpiSnapshots) kpiSnapshots = d.kpiSnapshots;
     if(d.companyMaster){ companyMaster = d.companyMaster; saveCompanyMaster(); }
     normalizeData();
+    _captureRemoteState();
     return true;
   }catch(e){ console.warn("fbLoad error:", e); return false; }
 }
@@ -9633,7 +9700,7 @@ function fbListen(){
   if(!_fbRef || _fbListening) return;
   _fbListening = true;
   _fbRef.on("value", snap => {
-    if(_fbIgnoreNext){ _fbIgnoreNext = false; return; }
+    if(_fbIgnoreNext){ _fbIgnoreNext = false; if(snap.exists()) _captureRemoteState(); return; }  // 내 저장 메아리 무시
     if(!snap.exists()) return;
     const d = snap.val();
     projects = _mapToArr(d.projects);
@@ -9641,6 +9708,7 @@ function fbListen(){
     if(d.kpiSnapshots) kpiSnapshots = d.kpiSnapshots;
     if(d.companyMaster){ companyMaster = d.companyMaster; saveCompanyMaster(); }
     normalizeData();
+    _captureRemoteState();
     try{ localStorage.setItem(SAVE_KEY, JSON.stringify({projects, allBills, kpiSnapshots})); }catch(_){}
     renderPage(currentTab);
     fbShowStatus("🔄 다른 기기에서 변경 반영됨", "#4338ca");
@@ -9734,12 +9802,13 @@ function saveData(){
 
 // ── 데이터 정규화: orders 없는 프로젝트 방어 ──
 function normalizeData(){
-  projects = (projects||[]).map(p => ({
+  // id 기준 중복 제거(현장·청구서·주문) — 동기화 사고로 인한 중복 자동 정리 안전망
+  projects = _dedupeById(projects||[]).map(p => ({
     ...p,
-    orders: Array.isArray(p.orders) ? p.orders : [],
+    orders: _dedupeById(Array.isArray(p.orders) ? p.orders : []),
     bills:  Array.isArray(p.bills)  ? p.bills  : [],
   }));
-  allBills = Array.isArray(allBills) ? allBills : [];
+  allBills = _dedupeById(Array.isArray(allBills) ? allBills : []);
 }
 
 function loadData(){
