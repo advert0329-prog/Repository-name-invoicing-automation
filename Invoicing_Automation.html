@@ -9624,6 +9624,11 @@ function _recKey(o,i){ if(o && o.id==null) o.id = Date.now()+Math.floor(Math.ran
 function _mapToArr(x){ if(!x) return []; if(Array.isArray(x)) return x.filter(v=>v!=null); return Object.values(x).filter(v=>v!=null); }
 function _arrToMap(arr){ const m={}; (arr||[]).forEach((o,i)=>{ if(o==null) return; m[_recKey(o,i)]=o; }); return m; }
 function _dedupeById(arr){ const seen=new Set(), out=[]; (arr||[]).forEach(o=>{ const k=(o&&o.id!=null)?String(o.id):null; if(k===null){ out.push(o); return; } if(!seen.has(k)){ seen.add(k); out.push(o); } }); return out; }
+// 데이터 동등성 서명(순서 무관, id 기준 정렬) — 메아리·중복 이벤트 시 불필요한 재렌더(깜빡임) 방지용
+function _sigData(ps,bs,cm,ks){
+  const byId = a => (Array.isArray(a)?a:[]).slice().sort((x,y)=>String(x&&x.id).localeCompare(String(y&&y.id)));
+  return JSON.stringify([byId(ps), byId(bs), cm||null, ks||{}]);
+}
 function _captureRemoteState(){
   _remoteState = { projects:{}, allBills:{}, companyMaster:JSON.stringify(companyMaster||null), kpiSnapshots:JSON.stringify(kpiSnapshots||{}) };
   projects.forEach((p,i)=>{ _remoteState.projects[_recKey(p,i)] = JSON.stringify(p); });
@@ -9670,7 +9675,7 @@ async function fbSave(){
       const before = JSON.stringify([projects, allBills, companyMaster, kpiSnapshots]);
       const d = res.snapshot.val();
       projects = _mapToArr(d.projects); allBills = _mapToArr(d.allBills);
-      if(d.companyMaster!==undefined){ companyMaster=d.companyMaster; saveCompanyMaster(); }
+      if(d.companyMaster!==undefined){ companyMaster=d.companyMaster; try{ localStorage.setItem(COMPANY_MASTER_KEY, JSON.stringify(companyMaster)); }catch(_){} }
       if(d.kpiSnapshots!==undefined) kpiSnapshots=d.kpiSnapshots;
       normalizeData(); _captureRemoteState();
       try{ localStorage.setItem(SAVE_KEY, JSON.stringify({projects, allBills, kpiSnapshots})); }catch(_){}
@@ -9703,10 +9708,16 @@ function fbListen(){
     if(_fbIgnoreNext){ _fbIgnoreNext = false; if(snap.exists()) _captureRemoteState(); return; }  // 내 저장 메아리 무시
     if(!snap.exists()) return;
     const d = snap.val();
-    projects = _mapToArr(d.projects);
-    allBills = _mapToArr(d.allBills);
+    const incomingP = _mapToArr(d.projects), incomingB = _mapToArr(d.allBills);
+    // 들어온 데이터가 현재와 사실상 동일하면(메아리·중복 이벤트) 재렌더하지 않음 → 깜빡임 방지
+    if(_sigData(incomingP, incomingB, d.companyMaster, d.kpiSnapshots) === _sigData(projects, allBills, companyMaster, kpiSnapshots)){
+      _captureRemoteState(); return;
+    }
+    projects = incomingP;
+    allBills = incomingB;
     if(d.kpiSnapshots) kpiSnapshots = d.kpiSnapshots;
-    if(d.companyMaster){ companyMaster = d.companyMaster; saveCompanyMaster(); }
+    // 원격 companyMaster는 로컬에만 반영 (여기서 saveCompanyMaster→fbSave를 부르면 기기 간 핑퐁 루프가 됨)
+    if(d.companyMaster){ companyMaster = d.companyMaster; try{ localStorage.setItem(COMPANY_MASTER_KEY, JSON.stringify(companyMaster)); }catch(_){} }
     normalizeData();
     _captureRemoteState();
     try{ localStorage.setItem(SAVE_KEY, JSON.stringify({projects, allBills, kpiSnapshots})); }catch(_){}
