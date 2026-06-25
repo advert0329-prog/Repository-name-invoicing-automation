@@ -661,8 +661,6 @@ input[type="url"], input[type="password"]{
           <div style="flex:1"><label class="cr-lbl">보험 시작일</label><input id="cr-guar-start" type="date" class="cr-inp"></div>
           <div style="flex:1"><label class="cr-lbl">보험 만기일</label><input id="cr-guar-end" type="date" class="cr-inp"></div>
         </div>
-        <label class="cr-lbl" style="margin-top:10px">여신 기준일 <span style="font-weight:400;color:#9ca3af">(이 날짜 이전 발행 계산서는 여신금액에서 제외 · 비우면 전체 포함)</span></label>
-        <input id="cr-guar-fromdate" type="date" class="cr-inp">
       </div>
 
       <div style="display:flex;gap:8px;margin-top:18px;justify-content:flex-end">
@@ -1055,14 +1053,10 @@ function confirmBilling(pid){
 // 특정 고객사의 자재 미입금 잔액 합산 (모든 현장 합산, 선급차감분 제외)
 function creditOutstandingByCompany(companyName){
   let outstanding = 0;
-  const _company = (companyMaster||[]).find(c=>c.name===companyName);
-  const _fromDate = (_company && _company.credit && _company.credit.fromDate) || '';
   (projects||[]).forEach(p => {
     if(p.customerName !== companyName) return;
     (p.orders||[]).forEach(o => {
       const amt = Number(o.amount)||0; if(amt<=0) return;
-      // 여신 기준일 이전에 발행된 계산서는 여신금액에서 제외 (계산서 미발행 건은 항상 포함)
-      if(_fromDate && o.invoiceDate && o.invoiceDate < _fromDate) return;
       const prepaid = Number(o.prepaidApplied)||0;
       const billable = (o.settlement==="선급차감") ? 0
                      : (o.settlement==="분할") ? Math.max(0, amt - prepaid)
@@ -1137,8 +1131,13 @@ function recalcPrepaidForCompany(companyName){
     return (a.id||0)-(b.id||0);
   });
   let remaining = Number(company.credit.total)||0;
+  const depDate = company.credit.depositDate || '';
   allOrders.forEach(o => {
     const amt = Number(o.amount)||0;
+    // 선급 입금일 이전 주문(주문일 < 입금일)은 선급 차감 대상에서 제외 → 일반 미수금 (입금일 당일은 포함)
+    if(depDate && o.date && o.date < depDate){
+      o.settlement = "일반"; o.prepaidApplied = 0; return;
+    }
     if(remaining<=0){
       o.settlement = "일반"; o.prepaidApplied = 0;
     } else if(amt <= remaining){
@@ -6000,7 +5999,6 @@ function openCreditModal(idx){
   document.getElementById('cr-guar-cover').value      = cr.type==='guarantee' ? (cr.coverAmount||'') : '';
   document.getElementById('cr-guar-start').value      = cr.type==='guarantee' ? (cr.startDate||'') : '';
   document.getElementById('cr-guar-end').value        = cr.type==='guarantee' ? (cr.endDate||'') : '';
-  document.getElementById('cr-guar-fromdate').value   = cr.type==='guarantee' ? (cr.fromDate||'') : '';
   _creditToggleFields();
   ov.classList.add('open');
 }
@@ -6035,8 +6033,7 @@ function saveCreditSetting(){
       policyNo:   document.getElementById('cr-guar-policy').value||'',
       coverAmount: cover,
       startDate:  document.getElementById('cr-guar-start').value||'',
-      endDate:    document.getElementById('cr-guar-end').value||'',
-      fromDate:   document.getElementById('cr-guar-fromdate').value||''
+      endDate:    document.getElementById('cr-guar-end').value||''
     };
   }
   // 여신 설정 변경 시 해당 고객사의 선급 차감 즉시 재계산 (기존 주문에도 소급 적용)
@@ -6765,13 +6762,13 @@ async function ordDownloadBillXlsx(pid, docNumber, issuedDate){
     //   결과: "광양금광1차아파트" → "광양금광1차" 입력 → numFmt가 부착 → "광양금광1차 아파트 낙찰가액"
     xml = xml.replace(
       /<c\s+r="D10"[^>]*?>[\s\S]*?<\/c>/,
-      `<c r="D10" s="32" t="str"><v>${escXml(aptForCell)}</v></c>`
+      `<c r="D10" s="32" t="inlineStr"><is><t xml:space="preserve">${escXml(aptForCell)}</t></is></c>`
     );
     // A22 (표 아파트명 데이터): 수식 =C5 제거 + 원본 aptName 직접 입력
     //   표에는 풀네임("광양금광1차아파트")이 그대로 표시되어야 함
     xml = xml.replace(
       /<c\s+r="A22"[^>]*?>[\s\S]*?<\/c>/,
-      `<c r="A22" s="75" t="str"><v>${escXml(aptName)}</v></c>`
+      `<c r="A22" s="75" t="inlineStr"><is><t xml:space="preserve">${escXml(aptName)}</t></is></c>`
     );
     // 공문번호 처리:
     //   C34 = "제 YYYY-"  (sharedStrings에서 이미 연도 반영 완료)
@@ -6817,6 +6814,19 @@ async function ordDownloadBillXlsx(pid, docNumber, issuedDate){
         }
       }
     } catch(e) { console.warn("styles.xml wrapText 적용 실패 (무시):", e.message); }
+
+    // ── calcChain.xml 제거 ──
+    //   D10·A22의 수식(=C5)을 정적값으로 바꾸면 계산체인이 깨져 엑셀이 "내용에 문제가 있습니다" 복구를 띄움.
+    //   calcChain은 계산순서 캐시일 뿐이라 지우면 엑셀이 열 때 자동 재생성함. 관련 참조도 함께 제거.
+    try {
+      zip.remove("xl/calcChain.xml");
+      let ctXml = await zip.file("[Content_Types].xml").async("string");
+      ctXml = ctXml.replace(/<Override[^>]*calcChain\.xml[^>]*\/>/g, "");
+      zip.file("[Content_Types].xml", ctXml);
+      let wbRels = await zip.file("xl/_rels/workbook.xml.rels").async("string");
+      wbRels = wbRels.replace(/<Relationship[^>]*calcChain\.xml[^>]*\/>/g, "");
+      zip.file("xl/_rels/workbook.xml.rels", wbRels);
+    } catch(e) { console.warn("calcChain.xml 제거 실패 (무시):", e.message); }
 
     const blob = await zip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:6}});
     const url = URL.createObjectURL(blob);
@@ -8723,6 +8733,7 @@ function submitOrder(){
     o.invoiceDate = invdate;
     o.depositDate = depdate;
     p.orders.sort((a,b)=>(a.date||"")<(b.date||"")?-1:(a.date||"")>(b.date||"")?1:0);
+    recalcPrepaidForCompany(p.customerName);
     closeModal("modal-order");
     saveData();
     renderPage(currentTab);
@@ -8735,6 +8746,7 @@ function submitOrder(){
     if(!p) return;
     p.orders.push({id:Date.now(),date,item:"자재",qty:1,unitPrice:Number(amount),amount:Number(amount),invoiceDate:invdate,depositDate:depdate});
     p.orders.sort((a,b)=>(a.date||"")<(b.date||"")?-1:(a.date||"")>(b.date||"")?1:0);
+    recalcPrepaidForCompany(p.customerName);
     closeModal("modal-order");
     saveData();
     renderPage(currentTab);
