@@ -1033,16 +1033,7 @@ function renderPage(i){
 }
 
 // ── 대시보드 ──
-// confirmBilling: 준공 임박 알림 끄기 (기존 변수명 호환을 위해 함수명·필드명 유지)
-// p.billingConfirmed = true 로 표시되면 해당 현장은 준공 임박 알림에서 제외됨
-function confirmBilling(pid){
-  const p = projects.find(x=>x.id===pid);
-  if(!p) return;
-  if(!confirm(`"${p.customerName} · ${p.aptName||""}" 준공 임박 알림을 끄시겠습니까?\n\n대시보드 알림 목록에서 제거됩니다.\n(데이터·청구 내역에는 영향 없음)`)) return;
-  p.billingConfirmed = true;
-  saveData();
-  renderDashboard();
-}
+// confirmBilling: 준공 임박 알림 기능 제거됨 (대시보드 섹션 삭제에 따라 함께 정리)
 
 // ════════ 여신관리 (선급금 · 보증보험 · 고객사 단위) ════════
 // companyMaster의 각 회사에 credit 객체를 선택적으로 부착:
@@ -1624,7 +1615,11 @@ function renderDashboard(){
   const mk = kpi.mat, pk = kpi.pat;
 
   const ctTypes=["공고","컨설팅","기술자재형","자재판매형","타공법","기타"];
-  let html = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;align-items:start;margin-bottom:4px">
+  const _bkDone = _lastBackupDate === _todayStrLocal();
+  const _bkBadge = `<div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+    <span id="dash-backup-badge" style="font-size:11px;color:${_bkDone?'#16a34a':'#9ca3af'};display:inline-flex;align-items:center;gap:4px">${_bkDone?'✅':'⏳'} 오늘 백업 ${_bkDone?`완료 (${_lastBackupDate})`:'대기중'}</span>
+  </div>`;
+  let html = _bkBadge + `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;align-items:start;margin-bottom:4px">
     <div><p class="sec-title" style="margin-top:0">📊 현장 현황</p>${kpiSiteOverviewCard()}</div>
     <div><p class="sec-title" style="margin-top:0">📊 전월 대비 변화 <span style="font-size:11px;color:#9ca3af;font-weight:400">(신규 90일 진입 · 전환율)</span></p>${kpiTrendSummary(kpi)}</div>
   </div>`;
@@ -1644,34 +1639,6 @@ function renderDashboard(){
   html += kpiTrendCharts();
   if(projects.length===0){
     html+=`<div class="info-box info-blue" style="text-align:center;padding:20px">📥 <strong>엑셀 가져오기</strong> 탭에서 기존 데이터를 불러오거나 <strong>현장 관리</strong>에서 직접 등록하세요.</div>`;
-  } else {
-    const billingSoon = projects.filter(p => { const dl=daysLeft(p.expectedCompletionDate); return dl!==null&&dl>=0&&dl<=7&&!p.billingConfirmed; });
-    html+=`<p class="sec-title">🔔 준공 임박 <span style="font-size:11px;color:#9ca3af;font-weight:400">(준공예정일 D-7 이내)</span></p>`;
-    if(billingSoon.length===0){
-      html+=`<div class="info-box info-gray" style="text-align:center;padding:14px">준공 임박 현장이 없습니다.</div>`;
-    } else {
-      billingSoon.forEach(p=>{
-        const b=calcBilling(p);
-        const dl=daysLeft(p.expectedCompletionDate);
-        const dlBadge = dl===null ? "" : dl>=0 ? badge(`준공 D-${dl}`,dl<=3?"b-red":"b-yellow") : badge(`준공 D+${Math.abs(dl)}`,"b-red");
-        html+=`<div class="card-sm" style="display:flex;justify-content:space-between;align-items:center;gap:10px">
-          <div style="flex:1;min-width:0">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
-              <strong style="font-size:13px">${p.customerName} · ${p.aptName||""}</strong>
-              ${badge(p.constructionType,typeColor(p.constructionType))}
-            </div>
-            <div style="display:flex;gap:4px;flex-wrap:wrap">
-              ${dlBadge}
-              ${!b.isExec&&b.materialAmt>0?badge("월 자재청구","b-blue"):""}
-            </div>
-          </div>
-          <div style="text-align:right;flex-shrink:0">
-            <div style="font-weight:700;color:#4338ca;margin-bottom:6px">${fmtNum(b.amount)}</div>
-            <button class="btn btn-gray btn-sm" onclick="confirmBilling(${p.id})" title="이 현장의 준공 임박 알림 끄기">📌 알림 끄기</button>
-          </div>
-        </div>`;
-      });
-    }
   }
   // ── [즉시 처리 필요] 공사이용안내서 미발송(좌) + 특허료 청구 대기(우) ──
   const patentPendingList = projects.filter(p => {
@@ -5125,152 +5092,176 @@ function cancelBill(bid){
   renderPage(currentTab);
 }
 
-// ── 연간 분석 리포트 ──
+// ── 연간 분석 리포트 (계산서 발행일 invoiceDate 기준 · 자재+특허료 통합 · 전년 대비) ──
 function downloadAnnualReport(){
-  if(allBills.length===0 && projects.every(p=>p.orders.length===0)){
+  if(allBills.length===0 && projects.every(p=>(p.orders||[]).length===0)){
     alert("분석할 데이터가 없습니다.");return;
   }
-  const wb = XLSX.utils.book_new();
-  const year = new Date().getFullYear();
+  // 연도 선택 (계산서 발행일 기준)
+  const yearsSet=new Set();
+  allBills.forEach(b=>{ if(b.invoiceDate) yearsSet.add(String(b.invoiceDate).slice(0,4)); });
+  projects.forEach(p=>(p.orders||[]).forEach(o=>{ if(o.invoiceDate) yearsSet.add(String(o.invoiceDate).slice(0,4)); }));
+  const availYears=[...yearsSet].filter(y=>/^\d{4}$/.test(y)).sort();
+  const defYear=availYears.length?availYears[availYears.length-1]:String(new Date().getFullYear());
+  const input=prompt(`연간 분석 리포트를 만들 연도를 입력하세요 (계산서 발행일 기준).\n\n데이터가 있는 연도: ${availYears.join(", ")||"-"}`, defYear);
+  if(input===null) return;
+  const year=parseInt(String(input).trim(),10);
+  if(!year||year<2000||year>2100){ alert("올바른 연도를 입력하세요 (예: 2025)"); return; }
+  const Y=String(year), Yprev=String(year-1);
 
-  /* ── 시트1: 종합 요약 ── */
-  const totalBillAmt   = allBills.reduce((s,b)=>s+b.amount,0);
-  const paidBillAmt    = allBills.filter(b=>b.status==="수금완료").reduce((s,b)=>s+b.amount,0);
-  const unpaidBillAmt  = totalBillAmt - paidBillAmt;
-  const recoveryRate   = totalBillAmt>0 ? (paidBillAmt/totalBillAmt*100).toFixed(1) : 0;
-  // 평균 회수기간 (계산서발행일→입금일)
-  const recoveredBills = allBills.filter(b=>b.status==="수금완료"&&b.invoiceDate&&b.depositDate);
-  const avgDays = recoveredBills.length>0
-    ? Math.round(recoveredBills.reduce((s,b)=>s+Math.floor((new Date(b.depositDate)-new Date(b.invoiceDate))/86400000),0)/recoveredBills.length)
-    : "-";
-  // 자재주문 미수금
-  const orderUnpaidAmt = projects.reduce((s,p)=>s+p.orders.filter(o=>o.invoiceDate&&!o.depositDate).reduce((ss,o)=>ss+o.amount,0),0);
-  const totalUnpaid    = unpaidBillAmt + orderUnpaidAmt;
+  const wb=XLSX.utils.book_new();
+  const _projById=id=>projects.find(x=>x.id===id);
+  const orderPaid=o=>{ try{ return Math.min(Number(o.amount)||0, getOrderPaidAmount(o)); }catch(e){ return o.depositDate?(Number(o.amount)||0):0; } };
 
-  const s1rows = [
-    [`${year}년 대금관리 종합 요약`,"",""],
-    ["항목","수치","비고"],
-    ["전체 청구 금액",totalBillAmt,"원"],
-    ["수금 완료 금액",paidBillAmt,"원"],
-    ["미수금 (청구서)",unpaidBillAmt,"원"],
-    ["미수금 (자재계산서)",orderUnpaidAmt,"원"],
-    ["총 미수금",totalUnpaid,"원"],
-    ["대금 회수율",recoveryRate+"%","수금완료÷전체청구"],
-    ["평균 회수기간",avgDays==="-"?"-":avgDays+"일","계산서발행→입금"],
-    ["총 현장 수",projects.length,"건"],
-    ["진행중 현장",projects.filter(p=>p.status==="진행중").length,"건"],
-    ["완료 현장",projects.filter(p=>p.status==="완료").length,"건"],
-    ["총 청구서 발행",allBills.length,"건"],
-    ["수금완료 청구서",allBills.filter(b=>b.status==="수금완료").length,"건"],
+  // 통합 매출 아이템(자재 계산서 + 특허료 계산서) — 해당 연도 invoiceDate만
+  function buildItems(yr){
+    const items=[];
+    allBills.forEach(b=>{
+      if(String(b.invoiceDate||"").slice(0,4)!==yr) return;
+      const amt=Number(b.amount)||0; const full=b.status==="수금완료";
+      const pp=_projById(b.projectId);
+      items.push({amt, paid:full?amt:0, unpaid:full?0:amt, invoiceDate:b.invoiceDate, depositDate:full?(b.depositDate||""):"", full,
+        ct:b.constructionType||(pp&&pp.constructionType)||"기타", grade:(pp&&pp.creditGrade)||"신규",
+        pid:b.projectId, name:(b.aptName||b.customerName||""), cust:b.customerName||"", kind:"특허료",
+        delayReason:b.delayReason, delayReasonNote:b.delayReasonNote, status:b.status});
+    });
+    projects.forEach(p=>(p.orders||[]).forEach(o=>{
+      if(String(o.invoiceDate||"").slice(0,4)!==yr) return;
+      const amt=Number(o.amount)||0; if(amt<=0) return;
+      const paid=orderPaid(o); const full=paid>=amt;
+      items.push({amt, paid, unpaid:Math.max(0,amt-paid), invoiceDate:o.invoiceDate, depositDate:o.depositDate||"", full,
+        ct:p.constructionType||"기타", grade:p.creditGrade||"신규",
+        pid:p.id, name:(p.aptName||p.customerName||""), cust:p.customerName||"", kind:"자재", status:full?"수금완료":"미수금"});
+    }));
+    return items;
+  }
+  const itemsY=buildItems(Y), itemsP=buildItems(Yprev);
+  const sum=(arr,f)=>arr.reduce((s,x)=>s+f(x),0);
+  function metrics(items){
+    const billed=sum(items,x=>x.amt), paid=sum(items,x=>x.paid), unpaid=sum(items,x=>x.unpaid);
+    const rate=billed>0?(paid/billed*100):0;
+    const recov=items.filter(x=>x.full&&x.invoiceDate&&x.depositDate);
+    const avgDays=recov.length?Math.round(sum(recov,x=>Math.floor((new Date(x.depositDate)-new Date(x.invoiceDate))/86400000))/recov.length):null;
+    return {billed,paid,unpaid,rate,avgDays,count:items.length};
+  }
+  const mY=metrics(itemsY), mP=metrics(itemsP);
+  const yoyPct=(c,p)=> (p&&p!==0)?(((c-p)/Math.abs(p))*100).toFixed(1)+"%":(c?"신규":"-");
+
+  /* ── 시트1: 종합 요약 (전년 대비) ── */
+  const s1rows=[
+    [`${Y}년 대금관리 종합 요약 (계산서 발행일 기준)`,"","","",""],
+    ["항목",`${Y}년`,`${Yprev}년`,"증감","비고"],
+    ["매출(청구금액)",mY.billed,mP.billed,yoyPct(mY.billed,mP.billed),"자재+특허료 계산서 · 발행일 기준"],
+    ["수금 완료 금액",mY.paid,mP.paid,yoyPct(mY.paid,mP.paid),"입금일 기준"],
+    ["미수금",mY.unpaid,mP.unpaid,yoyPct(mY.unpaid,mP.unpaid),"그 해 발행분 중 미수"],
+    ["대금 회수율",mY.rate.toFixed(1)+"%",mP.rate.toFixed(1)+"%",(mY.rate-mP.rate).toFixed(1)+"%p","수금÷매출"],
+    ["평균 회수기간",mY.avgDays==null?"-":mY.avgDays+"일",mP.avgDays==null?"-":mP.avgDays+"일",
+      (mY.avgDays!=null&&mP.avgDays!=null)?((mY.avgDays-mP.avgDays>=0?"+":"")+(mY.avgDays-mP.avgDays)+"일"):"-","계산서발행→입금"],
+    ["계산서 발행 건수",mY.count,mP.count,yoyPct(mY.count,mP.count),"건(자재+특허료)"],
+    ["── 현장 현황 (전체 기준) ──","","","",""],
+    ["총 현장 수",projects.length,"","","건"],
+    ["진행중 현장",projects.filter(p=>p.status==="진행중").length,"","","건"],
+    ["완료 현장",projects.filter(p=>p.status==="완료").length,"","","건"],
   ];
-  const ws1 = XLSX.utils.aoa_to_sheet(s1rows);
-  ws1["!cols"]=[{wch:22},{wch:18},{wch:14}];
+  const ws1=XLSX.utils.aoa_to_sheet(s1rows);
+  ws1["!cols"]=[{wch:20},{wch:16},{wch:16},{wch:12},{wch:28}];
   XLSX.utils.book_append_sheet(wb,ws1,"종합요약");
 
-  /* ── 시트2: 지연사유별 분석 ── */
-  const unpaidWithReason = allBills.filter(b=>b.status!=="수금완료");
-  const reasonMap = {};
-  unpaidWithReason.forEach(b=>{
-    const r = b.delayReason||(b.delayReason==="기타"&&b.delayReasonNote?b.delayReasonNote:"미입력");
-    const reason = b.delayReason ? (b.delayReason==="기타"&&b.delayReasonNote?`기타: ${b.delayReasonNote}`:b.delayReason) : "미입력";
+  /* ── 시트2: 지연사유별 분석 (특허료 청구 · 해당 연도 발행분) ── */
+  const unpaidBillsY=allBills.filter(b=>String(b.invoiceDate||"").slice(0,4)===Y && b.status!=="수금완료");
+  const reasonMap={};
+  unpaidBillsY.forEach(b=>{
+    const reason=b.delayReason?(b.delayReason==="기타"&&b.delayReasonNote?`기타: ${b.delayReasonNote}`:b.delayReason):"미입력";
     if(!reasonMap[reason]) reasonMap[reason]={count:0,totalAmt:0,totalDays:0,dayCount:0};
-    reasonMap[reason].count++;
-    reasonMap[reason].totalAmt+=b.amount;
+    reasonMap[reason].count++; reasonMap[reason].totalAmt+=(Number(b.amount)||0);
     const refDate=b.invoiceDate||b.issuedDate;
-    if(refDate){
-      const d=Math.floor((Date.now()-new Date(refDate).getTime())/86400000);
-      reasonMap[reason].totalDays+=d;
-      reasonMap[reason].dayCount++;
-    }
+    if(refDate){ const d=Math.floor((Date.now()-new Date(refDate).getTime())/86400000); reasonMap[reason].totalDays+=d; reasonMap[reason].dayCount++; }
   });
-  const totalReasonCount = unpaidWithReason.length||1;
-  const s2rows = [["수금지연 사유별 분석","","","",""],
+  const totalReasonCount=unpaidBillsY.length||1;
+  const s2rows=[[`${Y}년 수금지연 사유별 분석 (특허료 청구 발행분 기준)`,"","","",""],
     ["지연사유","건수","비중(%)","미수금액","평균지연일수"]];
   Object.entries(reasonMap).sort((a,b)=>b[1].count-a[1].count).forEach(([reason,v])=>{
     s2rows.push([reason,v.count,((v.count/totalReasonCount)*100).toFixed(1)+"%",v.totalAmt,v.dayCount>0?Math.round(v.totalDays/v.dayCount)+"일":"-"]);
   });
-  const ws2 = XLSX.utils.aoa_to_sheet(s2rows);
+  if(Object.keys(reasonMap).length===0) s2rows.push(["미수 없음",0,"-",0,"-"]);
+  const ws2=XLSX.utils.aoa_to_sheet(s2rows);
   ws2["!cols"]=[{wch:22},{wch:8},{wch:10},{wch:14},{wch:12}];
   XLSX.utils.book_append_sheet(wb,ws2,"지연사유분석");
 
-  /* ── 시트3: 공사형태별 집계 ── */
-  const ctypes=["공고","컨설팅","기술자재형","자재판매형","기타"];
-  const s3rows=[["공사형태별 청구·수금 집계","","","","",""],
+  /* ── 시트3: 공사형태별 집계 (해당 연도 발행분) ── */
+  const ctypes=["공고","컨설팅","기술자재형","자재판매형","타공법","기타"];
+  const ctAgg={}; ctypes.forEach(ct=>ctAgg[ct]={pids:new Set(),billed:0,paid:0,unpaid:0,bid:0});
+  itemsY.forEach(x=>{ const ct=ctAgg[x.ct]?x.ct:"기타"; ctAgg[ct].billed+=x.amt; ctAgg[ct].paid+=x.paid; ctAgg[ct].unpaid+=x.unpaid; ctAgg[ct].pids.add(x.pid); });
+  // 낙찰가는 해당 연도 활동 현장 기준 합산
+  Object.keys(ctAgg).forEach(ct=>{ ctAgg[ct].pids.forEach(pid=>{ const pp=_projById(pid); if(pp) ctAgg[ct].bid+=(Number(pp.bidPrice)||0); }); });
+  const s3rows=[[`${Y}년 공사형태별 청구·수금 집계 (발행일 기준)`,"","","","",""],
     ["공사형태","현장수","총낙찰가","청구금액","수금금액","미수금액"]];
-  ctypes.forEach(ct=>{
-    const ps=projects.filter(p=>p.constructionType===ct);
-    const bs=allBills.filter(b=>b.constructionType===ct);
-    s3rows.push([ct,ps.length,ps.reduce((s,p)=>s+p.bidPrice,0),bs.reduce((s,b)=>s+b.amount,0),bs.filter(b=>b.status==="수금완료").reduce((s,b)=>s+b.amount,0),bs.filter(b=>b.status!=="수금완료").reduce((s,b)=>s+b.amount,0)]);
-  });
+  ctypes.forEach(ct=>{ const a=ctAgg[ct]; s3rows.push([ct,a.pids.size,a.bid,a.billed,a.paid,a.unpaid]); });
   const ws3=XLSX.utils.aoa_to_sheet(s3rows);
   ws3["!cols"]=[{wch:14},{wch:8},{wch:14},{wch:14},{wch:14},{wch:14}];
   XLSX.utils.book_append_sheet(wb,ws3,"공사형태별집계");
 
-  /* ── 시트4: 월별 청구·입금 흐름 ── */
+  /* ── 시트4: 월별 청구·입금 흐름 (선택 연도 1~12월, 발행일 기준) ── */
   const monthBill=Array(12).fill(0), monthPaid=Array(12).fill(0), monthUnpaid=Array(12).fill(0);
-  allBills.forEach(b=>{
-    const m=(b.issuedDate||"").slice(5,7); if(!m)return;
-    const mi=parseInt(m)-1; if(mi<0||mi>11)return;
-    monthBill[mi]+=b.amount;
-    if(b.status==="수금완료") monthPaid[mi]+=b.amount;
-    else monthUnpaid[mi]+=b.amount;
+  itemsY.forEach(x=>{
+    const mi=parseInt(String(x.invoiceDate||"").slice(5,7),10)-1; if(mi<0||mi>11) return;
+    monthBill[mi]+=x.amt; monthPaid[mi]+=x.paid; monthUnpaid[mi]+=x.unpaid;
   });
-  const s4rows=[["월별 청구·입금 흐름","","",""],["월","청구금액","수금금액","미수금액"]];
+  const s4rows=[[`${Y}년 월별 청구·수금 흐름 (계산서 발행일 기준)`,"","",""],["월","청구금액","수금금액","미수금액"]];
   for(let i=0;i<12;i++) s4rows.push([`${i+1}월`,monthBill[i],monthPaid[i],monthUnpaid[i]]);
+  s4rows.push(["합계",monthBill.reduce((a,b)=>a+b,0),monthPaid.reduce((a,b)=>a+b,0),monthUnpaid.reduce((a,b)=>a+b,0)]);
   const ws4=XLSX.utils.aoa_to_sheet(s4rows);
   ws4["!cols"]=[{wch:8},{wch:14},{wch:14},{wch:14}];
   XLSX.utils.book_append_sheet(wb,ws4,"월별흐름");
 
-  /* ── 시트5: 미수금 연령 분석 ── */
+  /* ── 시트5: 미수금 연령 분석 (선택 연도 발행분 중 미수, 오늘 기준 경과) ── */
   const ageBrackets=[{label:"30일 미만",min:0,max:29},{label:"30~60일",min:30,max:60},{label:"61~90일",min:61,max:90},{label:"90일 초과",min:91,max:9999}];
   const ageMap={}; ageBrackets.forEach(b=>{ageMap[b.label]={count:0,amt:0};});
-  allBills.filter(b=>b.status!=="수금완료").forEach(b=>{
-    const ref=b.invoiceDate||b.issuedDate; if(!ref)return;
-    const d=Math.floor((Date.now()-new Date(ref).getTime())/86400000);
-    const br=ageBrackets.find(x=>d>=x.min&&d<=x.max);
-    if(br){ageMap[br.label].count++;ageMap[br.label].amt+=b.amount;}
+  itemsY.filter(x=>x.unpaid>0).forEach(x=>{
+    if(!x.invoiceDate) return;
+    const d=Math.floor((Date.now()-new Date(x.invoiceDate).getTime())/86400000);
+    const br=ageBrackets.find(z=>d>=z.min&&d<=z.max);
+    if(br){ ageMap[br.label].count++; ageMap[br.label].amt+=x.unpaid; }
   });
-  const s5rows=[["미수금 연령 분석","",""],["경과기간","건수","미수금액"]];
+  const s5rows=[[`${Y}년 발행분 미수금 연령 분석 (오늘 기준 경과)`,"",""],["경과기간","건수","미수금액"]];
   ageBrackets.forEach(b=>s5rows.push([b.label,ageMap[b.label].count,ageMap[b.label].amt]));
   const ws5=XLSX.utils.aoa_to_sheet(s5rows);
   ws5["!cols"]=[{wch:14},{wch:8},{wch:14}];
   XLSX.utils.book_append_sheet(wb,ws5,"미수금연령분석");
 
-  /* ── 시트6: 고객사 신용등급별 미수금 ── */
+  /* ── 시트6: 고객사 신용등급별 미수금 (선택 연도 발행분) ── */
   const gradeMap={A:{count:0,unpaid:0},B:{count:0,unpaid:0},C:{count:0,unpaid:0},신규:{count:0,unpaid:0}};
-  projects.forEach(p=>{
-    const g=p.creditGrade||"신규";
-    const key=gradeMap[g]?g:"신규";
-    gradeMap[key].count++;
-    const unpaid=allBills.filter(b=>b.projectId===p.id&&b.status!=="수금완료").reduce((s,b)=>s+b.amount,0);
-    gradeMap[key].unpaid+=unpaid;
-  });
-  const s6rows=[["고객사 신용등급별 미수금 현황","",""],["등급","현장수","미수금액"]];
-  ["A","B","C","신규"].forEach(g=>s6rows.push([g+"등급",gradeMap[g].count,gradeMap[g].unpaid]));
+  const gradePids={A:new Set(),B:new Set(),C:new Set(),신규:new Set()};
+  itemsY.forEach(x=>{ const g=gradeMap[x.grade]?x.grade:"신규"; gradePids[g].add(x.pid); gradeMap[g].unpaid+=x.unpaid; });
+  const s6rows=[[`${Y}년 고객사 신용등급별 미수금 (발행분 기준)`,"",""],["등급","현장수","미수금액"]];
+  ["A","B","C","신규"].forEach(g=>s6rows.push([g+"등급",gradePids[g].size,gradeMap[g].unpaid]));
   const ws6=XLSX.utils.aoa_to_sheet(s6rows);
   ws6["!cols"]=[{wch:12},{wch:8},{wch:14}];
   XLSX.utils.book_append_sheet(wb,ws6,"신용등급별미수금");
 
-  /* ── 시트7: 현장별 수금현황 ── */
-  const s7rows=[["현장별 수금현황","","","","","",""],
-    ["아파트명","고객사","공사형태","신용등급","낙찰가","청구금액","수금금액","미수금액","회수율(%)","평균회수일"]];
-  projects.forEach(p=>{
-    const bs=allBills.filter(b=>b.projectId===p.id);
-    const bAmt=bs.reduce((s,b)=>s+b.amount,0);
-    const pAmt=bs.filter(b=>b.status==="수금완료").reduce((s,b)=>s+b.amount,0);
-    const uAmt=bAmt-pAmt;
-    const rate=bAmt>0?((pAmt/bAmt)*100).toFixed(1)+"%":"-";
-    const paidBs=bs.filter(b=>b.status==="수금완료"&&b.invoiceDate&&b.depositDate);
-    const avgD=paidBs.length>0?Math.round(paidBs.reduce((s,b)=>s+Math.floor((new Date(b.depositDate)-new Date(b.invoiceDate))/86400000),0)/paidBs.length)+"일":"-";
-    s7rows.push([p.aptName||p.customerName,p.customerName,p.constructionType,p.creditGrade||"신규",p.bidPrice,bAmt,pAmt,uAmt,rate,avgD]);
+  /* ── 시트7: 현장별 수금현황 (선택 연도 발행분, 활동 현장만) ── */
+  const byPid={};
+  itemsY.forEach(x=>{ if(!byPid[x.pid]) byPid[x.pid]={billed:0,paid:0,unpaid:0,recovDays:0,recovCnt:0}; const a=byPid[x.pid];
+    a.billed+=x.amt; a.paid+=x.paid; a.unpaid+=x.unpaid;
+    if(x.full&&x.invoiceDate&&x.depositDate){ a.recovDays+=Math.floor((new Date(x.depositDate)-new Date(x.invoiceDate))/86400000); a.recovCnt++; }
   });
+  const s7rows=[[`${Y}년 현장별 수금현황 (발행분 기준)`,"","","","","","","","",""],
+    ["아파트명","고객사","공사형태","신용등급","낙찰가","청구금액","수금금액","미수금액","회수율(%)","평균회수일"]];
+  Object.keys(byPid).map(pid=>({pid,a:byPid[pid]})).sort((m,n)=>n.a.unpaid-m.a.unpaid).forEach(({pid,a})=>{
+    const pp=_projById(isNaN(pid)?pid:Number(pid))||_projById(pid)||{};
+    const rate=a.billed>0?((a.paid/a.billed)*100).toFixed(1)+"%":"-";
+    const avgD=a.recovCnt>0?Math.round(a.recovDays/a.recovCnt)+"일":"-";
+    s7rows.push([pp.aptName||pp.customerName||"",pp.customerName||"",pp.constructionType||"",pp.creditGrade||"신규",Number(pp.bidPrice)||0,a.billed,a.paid,a.unpaid,rate,avgD]);
+  });
+  if(Object.keys(byPid).length===0) s7rows.push(["(해당 연도 발행 내역 없음)","","","","","","","","",""]);
   const ws7=XLSX.utils.aoa_to_sheet(s7rows);
   ws7["!cols"]=[{wch:18},{wch:16},{wch:12},{wch:10},{wch:14},{wch:14},{wch:14},{wch:14},{wch:10},{wch:12}];
   XLSX.utils.book_append_sheet(wb,ws7,"현장별수금현황");
 
-  const dateStr=new Date().toISOString().slice(0,10).replace(/-/g,"");
-  XLSX.writeFile(wb,`연간분석리포트_${year}_${dateStr}.xlsx`);
-  if(window._showSaved) window._showSaved("📈 연간 분석 리포트 저장됨");
+  const d=new Date();
+  const dateStr=d.getFullYear()+String(d.getMonth()+1).padStart(2,"0")+String(d.getDate()).padStart(2,"0");
+  XLSX.writeFile(wb,`연간분석리포트_${Y}_${dateStr}.xlsx`);
+  if(window._showSaved) window._showSaved(`📈 ${Y}년 분석 리포트 저장됨`);
 }
 
 // ── 엑셀 가져오기 ──
@@ -6130,6 +6121,60 @@ function _gauge(pct, color){
     <div style="width:${w}%;height:100%;background:${color};border-radius:6px"></div></div>`;
 }
 
+// ── 고객사 클릭 시 펼쳐지는 주문·계산서 상세 (한 번에 하나만) ──
+let _creditOpen = "";
+function _escCreditName(s){ return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;'); }
+function toggleCreditDetail(name){ _creditOpen = (_creditOpen===name ? "" : name); if(currentTab===9) renderCreditManagement(); }
+function _creditOrderDetail(companyName){
+  const rows=[];
+  (projects||[]).forEach(p=>{
+    if(p.customerName!==companyName) return;
+    (p.orders||[]).forEach(o=>{
+      const amt=Number(o.amount)||0;
+      if(amt===0 && !o.invoiceDate) return;
+      const paid=getOrderPaidAmount(o);
+      const prepaid=Number(o.prepaidApplied)||0;
+      const billable=(o.settlement==="선급차감")?0:(o.settlement==="분할")?Math.max(0,amt-prepaid):amt;
+      const remain=Math.max(0, billable-paid);
+      rows.push({ site:p.aptName||p.customerName||"", date:o.date||"", inv:o.invoiceDate||"", amt, paid, remain, settle:o.settlement||"-", _s:(o.invoiceDate||o.date||"") });
+    });
+  });
+  rows.sort((a,b)=> a._s<b._s?-1:a._s>b._s?1:0);
+  if(rows.length===0) return `<div style="margin-top:10px;border-top:1px dashed #e5e7eb;padding-top:8px;font-size:11px;color:#9ca3af">주문·계산서 내역이 없습니다.</div>`;
+  const tAmt=rows.reduce((s,r)=>s+r.amt,0), tPaid=rows.reduce((s,r)=>s+r.paid,0), tRem=rows.reduce((s,r)=>s+r.remain,0);
+  const settleBadge=s=>{
+    if(s==="선급차감") return '<span style="color:#9d174d;font-weight:600">선급차감</span>';
+    if(s==="분할")     return '<span style="color:#b45309;font-weight:600">분할</span>';
+    if(s==="일반")     return '<span style="color:#374151">일반</span>';
+    return '<span style="color:#9ca3af">-</span>';
+  };
+  const head=`<tr style="color:#6b7280;font-size:10px;text-align:right">
+    <th style="text-align:left;padding:4px 6px;font-weight:600">현장</th>
+    <th style="padding:4px 6px;font-weight:600">주문일</th>
+    <th style="padding:4px 6px;font-weight:600">계산서발행일</th>
+    <th style="padding:4px 6px;font-weight:600">공급가액</th>
+    <th style="padding:4px 6px;font-weight:600">입금액</th>
+    <th style="padding:4px 6px;font-weight:600">미수잔액</th>
+    <th style="padding:4px 6px;font-weight:600;text-align:center">정산</th></tr>`;
+  const body=rows.map(r=>`<tr style="font-size:11px;border-top:1px solid #f3f4f6;text-align:right">
+    <td style="text-align:left;padding:4px 6px;color:#374151">${r.site}</td>
+    <td style="padding:4px 6px;color:#6b7280">${r.date||"-"}</td>
+    <td style="padding:4px 6px;color:${r.inv?'#374151':'#ea580c'}">${r.inv||"미발행"}</td>
+    <td style="padding:4px 6px;color:#374151">${fmtNum(r.amt)}</td>
+    <td style="padding:4px 6px;color:#16a34a">${fmtNum(r.paid)}</td>
+    <td style="padding:4px 6px;color:${r.remain>0?'#dc2626':'#9ca3af'}">${fmtNum(r.remain)}</td>
+    <td style="padding:4px 6px;text-align:center">${settleBadge(r.settle)}</td></tr>`).join('');
+  const foot=`<tr style="font-size:11px;border-top:2px solid #e5e7eb;font-weight:700;text-align:right">
+    <td colspan="3" style="text-align:left;padding:5px 6px;color:#374151">합계 (${rows.length}건)</td>
+    <td style="padding:5px 6px;color:#374151">${fmtNum(tAmt)}</td>
+    <td style="padding:5px 6px;color:#16a34a">${fmtNum(tPaid)}</td>
+    <td style="padding:5px 6px;color:${tRem>0?'#dc2626':'#9ca3af'}">${fmtNum(tRem)}</td>
+    <td></td></tr>`;
+  return `<div style="margin-top:10px;border-top:1px dashed #e5e7eb;padding-top:8px;overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;min-width:540px">${head}${body}${foot}</table>
+  </div>`;
+}
+
 function _creditPrepaidCard(c){
   const st = creditPrepaidStatus(c);
   const done = st.remaining<=0;
@@ -6142,10 +6187,11 @@ function _creditPrepaidCard(c){
     ? sites.map(s=>`<div style="display:flex;justify-content:space-between;font-size:11px;color:#6b7280;padding:2px 0"><span>└ ${s.name}</span><span>${fmtNum(s.remain)}</span></div>`).join('')
     : `<div style="font-size:11px;color:#9ca3af;padding:2px 0">미입금 현장 없음</div>`;
   return `<div class="card" style="margin-bottom:14px;border-left:4px solid ${color}">
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;cursor:pointer" onclick="toggleCreditDetail('${_escCreditName(c.name)}')" title="클릭하면 주문·계산서 내역이 펼쳐집니다">
       <span style="font-size:15px;font-weight:800;color:#1f2937">${c.name}</span>
       <span style="font-size:10px;font-weight:700;color:#9d174d;background:#fdf2f8;border-radius:5px;padding:2px 7px">💳 선급금</span>
       ${done?'<span style="font-size:10px;font-weight:700;color:#16a34a;background:#f0fdf4;border-radius:5px;padding:2px 7px">소진 완료</span>':''}
+      <span style="margin-left:auto;color:#9ca3af;font-size:11px">${_creditOpen===c.name?'▲ 닫기':'▼ 내역'}</span>
     </div>
     ${_gauge(st.usedPct, color)}
     <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:10px">
@@ -6157,6 +6203,7 @@ function _creditPrepaidCard(c){
       ${sitesHtml}
       <div style="margin-top:6px">※ 선급 계산서: ${invStatus}</div>
     </div>
+    ${_creditOpen===c.name?_creditOrderDetail(c.name):''}
   </div>`;
 }
 
@@ -6182,11 +6229,12 @@ function _creditGuaranteeCard(c){
     ? `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:7px;padding:7px 10px;font-size:11px;color:#dc2626;font-weight:600;margin-bottom:8px">⚠️ 무보증 외상 상태! 보험이 만료됐으나 미입금 ${fmtNum(g.outstanding)}이 남아 있습니다.</div>`
     : '';
   return `<div class="card" style="margin-bottom:14px;border-left:4px solid ${color}">
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;cursor:pointer" onclick="toggleCreditDetail('${_escCreditName(c.name)}')" title="클릭하면 주문·계산서 내역이 펼쳐집니다">
       <span style="font-size:15px;font-weight:800;color:#1f2937">${c.name}</span>
       <span style="font-size:10px;font-weight:700;color:#1e40af;background:#eff6ff;border-radius:5px;padding:2px 7px">🛡️ 보증보험</span>
       ${expBadge}
       ${c.credit.insurer?`<span style="font-size:10px;color:#9ca3af">${c.credit.insurer}${c.credit.policyNo?' · '+c.credit.policyNo:''}</span>`:''}
+      <span style="margin-left:auto;color:#9ca3af;font-size:11px">${_creditOpen===c.name?'▲ 닫기':'▼ 내역'}</span>
     </div>
     ${overWarn}${expWarn}
     ${_gauge(g.usedPct, color)}
@@ -6198,6 +6246,7 @@ function _creditGuaranteeCard(c){
     <div style="font-size:11px;color:#9ca3af;border-top:1px solid #f3f4f6;padding-top:8px">
       ${sitesHtml}
     </div>
+    ${_creditOpen===c.name?_creditOrderDetail(c.name):''}
   </div>`;
 }
 
@@ -9709,8 +9758,55 @@ async function fbLoad(){
     if(d.companyMaster){ companyMaster = d.companyMaster; saveCompanyMaster(); }
     normalizeData();
     _captureRemoteState();
+    fbDailyBackup();   // 매일 1회 자동 백업 (그날 백업 없으면 적재) — 운영 data는 읽기만
     return true;
   }catch(e){ console.warn("fbLoad error:", e); return false; }
+}
+
+// ───────── 매일 1회 자동 백업 (구성 A: 앱 로드 시 그날 백업 없으면 적재) ─────────
+//   운영 데이터(netform_app/data)는 읽기만, 백업본은 netform_app/backups/{YYYY-MM-DD}에만 쓰기.
+//   두 기기 동시 접속 시 트랜잭션으로 중복 방지, 30일 초과 백업은 자동 삭제.
+let _lastBackupDate = localStorage.getItem("billing_last_backup_date") || "";
+function _todayStrLocal(){
+  const d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+}
+function _updateBackupBadge(){
+  const el = document.getElementById("dash-backup-badge");
+  if(!el) return;
+  const done = _lastBackupDate === _todayStrLocal();
+  el.style.color = done ? "#16a34a" : "#9ca3af";
+  el.textContent = (done ? "✅" : "⏳") + " 오늘 백업 " + (done ? "완료 (" + _lastBackupDate + ")" : "대기중");
+}
+async function fbDailyBackup(){
+  if(!_fbDb) return;
+  try{
+    const today = _todayStrLocal();
+    const bRef = _fbDb.ref("netform_app/backups/" + today);
+    // 오늘 백업이 없을 때만 현재 데이터 스냅샷 적재 (이미 있으면 그대로 둠 → 하루 1개)
+    await bRef.transaction(cur => {
+      if(cur) return cur;
+      return {
+        projects: _dedupeById(projects||[]),
+        allBills: _dedupeById(allBills||[]),
+        companyMaster: companyMaster||[],
+        kpiSnapshots: kpiSnapshots||{},
+        _backupAt: Date.now()
+      };
+    }, undefined, false);
+    _lastBackupDate = today;
+    try{ localStorage.setItem("billing_last_backup_date", today); }catch(_){}
+    _updateBackupBadge();
+    // 30일 초과 백업 자동 정리 (날짜 문자열 비교 — YYYY-MM-DD는 사전순=시간순)
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 30);
+    const cutoffStr = cutoff.getFullYear() + "-" + String(cutoff.getMonth()+1).padStart(2,"0") + "-" + String(cutoff.getDate()).padStart(2,"0");
+    const allBk = await _fbDb.ref("netform_app/backups").get();
+    if(allBk.exists()){
+      const updates = {};
+      Object.keys(allBk.val()).forEach(k => { if(k < cutoffStr) updates[k] = null; });
+      if(Object.keys(updates).length) await _fbDb.ref("netform_app/backups").update(updates);
+    }
+  }catch(e){ console.warn("일일 백업 실패(무시):", e.message); }
 }
 
 function fbListen(){
