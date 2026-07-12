@@ -122,6 +122,7 @@ input[type="url"], input[type="password"]{
 .b-yellow{background:var(--yellow-light);color:var(--yellow)}.b-red{background:var(--red-light);color:var(--red)}
 .b-gray{background:#ccfbf1;color:#0f766e}.b-purple{background:var(--purple-light);color:var(--purple)}
 .b-orange{background:var(--orange-light);color:var(--orange)}.b-patent{background:#fce7f3;color:#be185d}
+.b-tech{background:#cffafe;color:#0e7490}
 
 /* ── 버튼 ── */
 .btn{padding:8px 16px;border-radius:var(--radius-sm);border:none;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;transition:all .15s;letter-spacing:.1px}
@@ -439,6 +440,14 @@ input[type="url"], input[type="password"]{
           <div class="hint" id="type-hint">자재대금만 발생 · 준공 시 청구</div>
         </div>
         <div><label>낙찰가 *</label><input id="f-bid" type="number" style="width:100%;box-sizing:border-box"/></div>
+      </div>
+      <!-- 기술자문현장 구분 -->
+      <div class="field" style="background:#ecfeff;border:1px solid #a5f3fc;border-radius:8px;padding:10px 12px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;color:#0e7490;margin-bottom:0">
+          <input type="checkbox" id="f-tech-advisory" style="width:16px;height:16px;cursor:pointer"/>
+          🧭 기술자문현장
+        </label>
+        <div class="hint" style="margin-top:4px;color:#0891b2">※ 체크 시: 특허료 대상이더라도 특허료를 청구하지 않습니다 (자재대금만 청구).</div>
       </div>
       <!-- 타공법 특별 특허료 청구 영역 (조건부 표시) -->
       <div class="field" id="f-special-patent-area" style="display:none;background:#faf5ff;border:1px solid #e9d5ff;border-radius:8px;padding:10px 12px;margin-top:-4px">
@@ -962,6 +971,12 @@ function calcBilling(project){
     return {type:"자재대금",amount:total,materialAmt:total,patentAmt:0,
             detail:"자재대금 (월별 청구)",isExec:false,hasPatent:false,
             patentRate:0,isSpecialPatent:false};
+  }
+  // ③-0 기술자문현장: 특허료 대상이어도 청구하지 않음 (자재대금만 청구)
+  if(project.isTechAdvisory){
+    return {type:"자재대금",amount:total,materialAmt:total,patentAmt:0,
+            detail:"기술자문현장 · 특허료 청구 제외",isExec:false,hasPatent:false,
+            patentRate:rate,isSpecialPatent:rate>0&&rate<0.02};
   }
   // ③ 월별 자재 + 특허료 — 기술자재형/자재판매형/타공법(특별 ON)
   const thr = bid*rate;
@@ -1909,7 +1924,7 @@ function renderProjectCard(p){
       <div style="flex:1;min-width:0">
         <div style="display:flex;align-items:flex-start;gap:5px;flex-wrap:wrap;margin-bottom:3px">
           <span style="font-weight:700;font-size:14px;color:#111827;word-break:break-word">${p.aptName||p.customerName}</span>
-          ${guideFlag}${progBadge}${statusBadge}${dlBadge}${p.creditGrade&&p.creditGrade!=="신규"?creditBadge(p.creditGrade):""}
+          ${guideFlag}${p.isTechAdvisory?badge("🧭 기술자문","b-tech"):""}${progBadge}${statusBadge}${dlBadge}${p.creditGrade&&p.creditGrade!=="신규"?creditBadge(p.creditGrade):""}
         </div>
         <div style="font-size:11px;color:#6b7280;word-break:break-word;line-height:1.6">
           ${[p.aptName?p.customerName:null,p.category,fmtNum(p.bidPrice),p.expectedCompletionDate?"준공 "+p.expectedCompletionDate:null].filter(Boolean).join(" · ")}
@@ -2009,7 +2024,7 @@ function renderProjectsList(){
         <th style="text-align:right">낙찰가</th><th>준공일</th><th>상태</th><th>안내문</th><th>액션</th>
       </tr></thead><tbody>`;
       paged.forEach((p,i)=>{
-        const flag = '';
+        const flag = p.isTechAdvisory ? `<span class="badge b-tech" style="margin-right:5px">🧭 기술자문</span>` : '';
         html+=`<tr>
           <td><span style="color:${typeColors[p.constructionType]||'#374151'};font-weight:600;font-size:11px">${p.constructionType||'-'}</span></td>
           <td>${p.category||'-'}</td>
@@ -2261,7 +2276,8 @@ function ordCalc(p){
   const threshold = (Number(p.bidPrice)||0)*rate;
   const pct = (p.bidPrice>0 && rate>0) ? totalAmt/p.bidPrice*100 : 0;
   const showBar = rate > 0;                            // 특허료 적용되는 경우에만 막대 표시
-  const hasPatent = showBar && totalAmt < threshold;
+  const isTechAdvisory = !!p.isTechAdvisory;           // 기술자문현장: 특허료 청구 제외
+  const hasPatent = showBar && totalAmt < threshold && !isTechAdvisory;
   const patentFee = hasPatent ? Math.round((threshold-totalAmt)/2) : 0;
   const isSpecialPatent = rate>0 && rate<0.02;         // 타공법 특별청구 식별
   const validOrds = p.orders.filter(o=>Number(o.amount)>0);
@@ -2269,7 +2285,7 @@ function ordCalc(p){
   const noDep = validOrds.some(o=>o.invoiceDate&&!o.depositDate);
   const late  = validOrds.some(o=>o.invoiceDate&&!o.depositDate&&ordDfToday(o.invoiceDate)>=30);
   const allDone = validOrds.length>0 && validOrds.every(o=>o.invoiceDate&&o.depositDate);
-  return {totalAmt, threshold, pct, rate, showBar, hasPatent, patentFee, isSpecialPatent, noInv, noDep, late, allDone};
+  return {totalAmt, threshold, pct, rate, showBar, isTechAdvisory, hasPatent, patentFee, isSpecialPatent, noInv, noDep, late, allDone};
 }
 
 function ordGetFiltered(){
@@ -2325,6 +2341,8 @@ function ordPatentBarHTML(c, bid){
 }
 
 function ordPatentBadgeHTML(c, type){
+  // 기술자문현장: 특허료 대상이어도 청구하지 않음
+  if(c.isTechAdvisory) return `<span class="pbadge2 pb2-none" style="white-space:nowrap;background:#cffafe;color:#0e7490">🧭 자문(청구제외)</span>`;
   // 특허료 비해당 (자재 일괄: 컨설팅/기타/공고  +  타공법 특별 OFF)
   // → 모두 getPatentRate=0 → ordCalc.showBar=false 로 일원화 처리
   if(!c.showBar) return `<span class="pbadge2 pb2-none" style="white-space:nowrap">해당없음</span>`;
@@ -2717,7 +2735,7 @@ function renderOrders(){
         <tr class="site-row2${exp?" expanded":""}" id="osr-${p.id}" onclick="ordToggleExpand(${p.id})">
           <td class="sc2" style="text-align:center;white-space:nowrap">${badge(p.constructionType,tcol)}</td>
           <td class="sc2">
-            <div class="sc2-apt" title="${p.aptName||p.customerName}">${p.aptName||p.customerName}</div>
+            <div class="sc2-apt" title="${p.aptName||p.customerName}">${p.isTechAdvisory?'<span class="badge b-tech" style="margin-right:4px;font-size:10px">🧭 기술자문</span>':''}${p.aptName||p.customerName}</div>
             <div class="sc2-sub">${p.aptName?p.customerName:""}</div>
           </td>
           <td class="sc2" style="text-align:right;white-space:nowrap;font-weight:700;color:var(--indigo);font-size:11px">${ordFmtN(p.bidPrice||0)}원</td>
@@ -5270,13 +5288,14 @@ function downloadMasterExcel(){
   const wb = XLSX.utils.book_new();
 
   // ── 시트1: 현장 정보 ──
-  const projHeader = ["현장ID","고객사명","아파트명","공사명","공사형태","낙찰가","낙찰일","착공일","준공예정일","상태","담당이메일","특허번호","분류","공사이용안내서발송일","등록주문건수","주문합계","청구서건수","청구합계","수금완료여부"];
+  const projHeader = ["현장ID","고객사명","아파트명","공사명","공사형태","기술자문현장","낙찰가","낙찰일","착공일","준공예정일","상태","담당이메일","특허번호","분류","공사이용안내서발송일","등록주문건수","주문합계","청구서건수","청구합계","수금완료여부"];
   const projRows = projects.map(p=>{
     const orderTotal = p.orders.reduce((s,o)=>s+o.amount,0);
     const billTotal  = (p.bills||[]).reduce((s,b)=>s+b.amount,0);
     const allPaid    = (p.bills||[]).length>0 && (p.bills||[]).every(b=>b.status==="수금완료");
     return [
       p.id, p.customerName, p.aptName||"", p.constructionName||"", p.constructionType,
+      p.isTechAdvisory?"Y":"",
       p.bidPrice, p.bidConfirmDate||"", p.startDate||"", p.expectedCompletionDate||"",
       p.status||"", p.contactEmail||"", p.patentNo||"", p.category||"",
       p.guideSentDate||"", p.orders.length, orderTotal,
@@ -5284,7 +5303,7 @@ function downloadMasterExcel(){
     ];
   });
   const ws1 = XLSX.utils.aoa_to_sheet([projHeader, ...projRows]);
-  ws1["!cols"] = [8,14,16,14,10,12,10,10,10,8,22,14,8,10,8,12,8,12,8].map(w=>({wch:w}));
+  ws1["!cols"] = [8,14,16,14,10,12,12,10,10,10,8,22,14,8,10,8,12,8,12,8].map(w=>({wch:w}));
   XLSX.utils.book_append_sheet(wb, ws1, "현장정보");
 
   // ── 시트2: 자재주문 내역 ──
@@ -7162,6 +7181,7 @@ function showExcelPreview(){
   const colDefs=[
     {key:"no",labels:["no","NO","번호"]},
     {key:"constructionType",labels:["공사형태","형태"]},
+    {key:"isTechAdvisory",labels:["기술자문현장","기술자문","자문"]},
     {key:"category",labels:["공종"]},
     {key:"aptName",labels:["아파트명","아파트","현장명"]},
     {key:"patentNo",labels:["특허번호","특허"]},
@@ -7195,7 +7215,7 @@ function showExcelPreview(){
   </div>`;
 
   const colOptions=`<option value="-1">-- 선택 --</option>`+excelHeaders.map((h,i)=>`<option value="${i}">${h}</option>`).join("");
-  const labelMap={customerName:"낙찰사(고객사)",bidPrice:"낙찰금액",orderDate:"자재주문일",orderAmount:"자재주문금액",invoiceDate:"계산서발행일",invoiceAmount:"발행금액",depositDate:"입금일",depositAmount:"입금액",bidConfirmDate:"낙찰일",expectedCompletionDate:"준공예정일",constructionType:"공사형태",category:"공종",aptName:"아파트명",patentNo:"특허번호",constructionName:"공사명",no:"NO",contactEmail:"담당자이메일",status:"상태"};
+  const labelMap={customerName:"낙찰사(고객사)",bidPrice:"낙찰금액",orderDate:"자재주문일",orderAmount:"자재주문금액",invoiceDate:"계산서발행일",invoiceAmount:"발행금액",depositDate:"입금일",depositAmount:"입금액",bidConfirmDate:"낙찰일",expectedCompletionDate:"준공예정일",constructionType:"공사형태",isTechAdvisory:"기술자문현장",category:"공종",aptName:"아파트명",patentNo:"특허번호",constructionName:"공사명",no:"NO",contactEmail:"담당자이메일",status:"상태"};
   previewHtml+=`
   <div class="col-map">
     <h4>⚙️ 컬럼 매핑 확인 (자동 인식 — 필요시 수정)</h4>
@@ -7281,6 +7301,7 @@ function importExcelData(){
       aptName:String(getCell(row,"aptName")||"").trim(),
       constructionName:String(getCell(row,"constructionName")||"").trim(),
       constructionType:ct,
+      isTechAdvisory:(function(){const v=String(getCell(row,"isTechAdvisory")||"").trim().toUpperCase();return v==="Y"||v==="O"||v==="1"||v==="TRUE"||v==="V"||v.includes("자문")||v.includes("체크")||v.includes("해당");})(),
       bidPrice,
       category:String(getCell(row,"category")||"").trim(),
       patentNo:String(getCell(row,"patentNo")||"").trim(),
@@ -7384,6 +7405,7 @@ function openAddProject(){
   document.getElementById("f-constype").value="공고";
   document.getElementById("f-status").value="대기";
   document.getElementById("f-credit").value="신규";
+  document.getElementById("f-tech-advisory").checked = false;
   // 특별청구 필드 초기화
   document.getElementById("f-special-patent-enabled").checked = false;
   document.getElementById("f-special-patent-rate").value = "";
@@ -7414,6 +7436,7 @@ function openEditProject(pid){
   document.getElementById("f-status").value=p.status||"진행중";
   document.getElementById("f-credit").value=p.creditGrade||"신규";
   document.getElementById("f-memo").value=p.memo||"";
+  document.getElementById("f-tech-advisory").checked = !!p.isTechAdvisory;
   // 타공법 특별청구 필드 복원
   document.getElementById("f-special-patent-enabled").checked = !!p.specialPatentEnabled;
   document.getElementById("f-special-patent-rate").value = p.specialPatentRate ? (p.specialPatentRate*100) : "";
@@ -7460,6 +7483,7 @@ function submitProject(){
     aptName:document.getElementById("f-apt").value,
     constructionName:document.getElementById("f-consname").value,
     constructionType:document.getElementById("f-constype").value,
+    isTechAdvisory:document.getElementById("f-tech-advisory").checked,
     bidPrice:Number(bid),
     category:document.getElementById("f-category").value,
     patentNo:document.getElementById("f-patent").value,
