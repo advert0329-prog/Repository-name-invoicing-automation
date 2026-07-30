@@ -1136,22 +1136,53 @@ function recalcPrepaidForCompany(companyName){
     if(da!==db) return da<db?-1:1;
     return (a.id||0)-(b.id||0);
   });
-  let remaining = Number(company.credit.total)||0;
-  const depDate = company.credit.depositDate || '';
+  // 선급차감 기준일 = 선급계산서 발행일. 이 날짜 이전 주문(주문일 기준)은 선급 대상에서 제외.
+  const cutoff = company.credit.invoiceDate || '';
+  // [1회 시드] prepaidChecked가 한 번도 설정된 적 없으면 기존 자동 분류에서 초기화
+  //   ('선급차감'만 체크로 승계 · '분할'은 전액-단위 방식에 맞춰 미체크(일반)로 둠)
   allOrders.forEach(o => {
-    const amt = Number(o.amount)||0;
-    // 선급 입금일 이전 주문(주문일 < 입금일)은 선급 차감 대상에서 제외 → 일반 미수금 (입금일 당일은 포함)
-    if(depDate && o.date && o.date < depDate){
-      o.settlement = "일반"; o.prepaidApplied = 0; return;
-    }
-    if(remaining<=0){
-      o.settlement = "일반"; o.prepaidApplied = 0;
-    } else if(amt <= remaining){
-      o.settlement = "선급차감"; o.prepaidApplied = amt; remaining -= amt;
-    } else {
-      o.settlement = "분할"; o.prepaidApplied = remaining; remaining = 0;
+    if(o.prepaidChecked === undefined){
+      o.prepaidChecked = (o.settlement === "선급차감");
     }
   });
+  // 수동 전액-단위 차감: 체크된(그리고 발행일 이후) 주문만 전액 선급차감, 나머지는 일반. 자동 분할 없음.
+  allOrders.forEach(o => {
+    const amt = Number(o.amount)||0;
+    const eligible = !cutoff || !o.date || o.date >= cutoff;   // 발행일 이전 주문 제외
+    if(o.prepaidChecked && eligible){
+      o.settlement = "선급차감"; o.prepaidApplied = amt;
+    } else {
+      o.settlement = "일반"; o.prepaidApplied = 0;
+    }
+  });
+}
+
+// 선급차감 수동 토글 (전액-단위 · 초과 체크 차단 · 발행일 이전 제외)
+function togglePrepaidOrder(pid, oid, companyName){
+  const p=(projects||[]).find(x=>x.id===pid); if(!p) return;
+  const o=(p.orders||[]).find(x=>x.id===oid); if(!o) return;
+  const company=(companyMaster||[]).find(c=>c.name===companyName);
+  if(!company||!company.credit||company.credit.type!=='prepaid') return;
+  const cutoff = company.credit.invoiceDate || '';
+  const amt = Number(o.amount)||0;
+  if(!o.prepaidChecked){
+    // 체크(선급차감) 시도 — 발행일·잔액 검증
+    if(cutoff && o.date && o.date < cutoff){
+      alert(`선급 계산서 발행일(${cutoff}) 이전 주문이라 선급차감 대상이 아닙니다.`);
+      return;
+    }
+    const st = creditPrepaidStatus(company);   // 현재(이 주문 미포함) 잔액
+    if(amt > st.remaining){
+      alert(`선급 잔액(${fmtNum(st.remaining)}원)을 초과하여 선급차감할 수 없습니다.\n· 이 주문 공급가액: ${fmtNum(amt)}원`);
+      return;
+    }
+    o.prepaidChecked = true;
+  } else {
+    o.prepaidChecked = false;
+  }
+  recalcPrepaidForCompany(companyName);
+  saveData();
+  if(currentTab===9) renderCreditManagement();
 }
 
 // 보증보험 한도 체크 (주문 추가 전 호출). 초과 시 경고 메시지 반환, 정상이면 null.
@@ -6145,6 +6176,9 @@ let _creditOpen = "";
 function _escCreditName(s){ return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;'); }
 function toggleCreditDetail(name){ _creditOpen = (_creditOpen===name ? "" : name); if(currentTab===9) renderCreditManagement(); }
 function _creditOrderDetail(companyName){
+  const company=(companyMaster||[]).find(x=>x.name===companyName);
+  const cutoff = (company&&company.credit&&company.credit.type==='prepaid') ? (company.credit.invoiceDate||'') : '';
+  const cnEsc = _escCreditName(companyName);
   const rows=[];
   (projects||[]).forEach(p=>{
     if(p.customerName!==companyName) return;
@@ -6155,19 +6189,29 @@ function _creditOrderDetail(companyName){
       const prepaid=Number(o.prepaidApplied)||0;
       const billable=(o.settlement==="선급차감")?0:(o.settlement==="분할")?Math.max(0,amt-prepaid):amt;
       const remain=Math.max(0, billable-paid);
-      rows.push({ site:p.aptName||p.customerName||"", date:o.date||"", inv:o.invoiceDate||"", amt, paid, remain, settle:o.settlement||"-", _s:(o.invoiceDate||o.date||"") });
+      const eligible = !cutoff || !o.date || o.date >= cutoff;   // 발행일 이전 주문은 선급 대상 아님
+      rows.push({ pid:p.id, oid:o.id, checked:!!o.prepaidChecked, eligible, site:p.aptName||p.customerName||"", date:o.date||"", inv:o.invoiceDate||"", amt, paid, remain, settle:o.settlement||"-", _s:(o.invoiceDate||o.date||"") });
     });
   });
   rows.sort((a,b)=> a._s<b._s?-1:a._s>b._s?1:0);
   if(rows.length===0) return `<div style="margin-top:10px;border-top:1px dashed #e5e7eb;padding-top:8px;font-size:11px;color:#9ca3af">주문·계산서 내역이 없습니다.</div>`;
   const tAmt=rows.reduce((s,r)=>s+r.amt,0), tPaid=rows.reduce((s,r)=>s+r.paid,0), tRem=rows.reduce((s,r)=>s+r.remain,0);
+  const selCnt=rows.filter(r=>r.settle==="선급차감").length;
+  const isPrepaid = !!(company&&company.credit&&company.credit.type==='prepaid');
   const settleBadge=s=>{
     if(s==="선급차감") return '<span style="color:#9d174d;font-weight:600">선급차감</span>';
     if(s==="분할")     return '<span style="color:#b45309;font-weight:600">분할</span>';
     if(s==="일반")     return '<span style="color:#374151">일반</span>';
     return '<span style="color:#9ca3af">-</span>';
   };
+  const chkCell=r=>{
+    if(!isPrepaid) return '';
+    if(!r.eligible) return `<td style="padding:4px 6px;text-align:center"><span title="선급 계산서 발행일 이전 주문 — 선급차감 대상 아님" style="color:#d1d5db;cursor:not-allowed">🔒</span></td>`;
+    return `<td style="padding:4px 6px;text-align:center"><input type="checkbox" ${r.checked?'checked':''} onclick="togglePrepaidOrder(${r.pid},${r.oid},'${cnEsc}')" style="width:15px;height:15px;accent-color:#9d174d;cursor:pointer;vertical-align:middle"></td>`;
+  };
+  const chkHead = isPrepaid ? `<th style="padding:4px 6px;font-weight:600;text-align:center;line-height:1.2">선급<br>차감</th>` : '';
   const head=`<tr style="color:#6b7280;font-size:10px;text-align:right">
+    ${chkHead}
     <th style="text-align:left;padding:4px 6px;font-weight:600">현장</th>
     <th style="padding:4px 6px;font-weight:600">주문일</th>
     <th style="padding:4px 6px;font-weight:600">계산서발행일</th>
@@ -6175,7 +6219,8 @@ function _creditOrderDetail(companyName){
     <th style="padding:4px 6px;font-weight:600">입금액</th>
     <th style="padding:4px 6px;font-weight:600">미수잔액</th>
     <th style="padding:4px 6px;font-weight:600;text-align:center">정산</th></tr>`;
-  const body=rows.map(r=>`<tr style="font-size:11px;border-top:1px solid #f3f4f6;text-align:right">
+  const body=rows.map(r=>`<tr style="font-size:11px;border-top:1px solid #f3f4f6;text-align:right;background:${r.settle==='선급차감'?'#fdf2f8':'transparent'}">
+    ${chkCell(r)}
     <td style="text-align:left;padding:4px 6px;color:#374151">${r.site}</td>
     <td style="padding:4px 6px;color:#6b7280">${r.date||"-"}</td>
     <td style="padding:4px 6px;color:${r.inv?'#374151':'#ea580c'}">${r.inv||"미발행"}</td>
@@ -6184,18 +6229,23 @@ function _creditOrderDetail(companyName){
     <td style="padding:4px 6px;color:${r.remain>0?'#dc2626':'#9ca3af'}">${fmtNum(r.remain)}</td>
     <td style="padding:4px 6px;text-align:center">${settleBadge(r.settle)}</td></tr>`).join('');
   const foot=`<tr style="font-size:11px;border-top:2px solid #e5e7eb;font-weight:700;text-align:right">
+    ${isPrepaid?`<td style="padding:5px 6px;text-align:center;color:#9d174d">${selCnt}건</td>`:''}
     <td colspan="3" style="text-align:left;padding:5px 6px;color:#374151">합계 (${rows.length}건)</td>
     <td style="padding:5px 6px;color:#374151">${fmtNum(tAmt)}</td>
     <td style="padding:5px 6px;color:#16a34a">${fmtNum(tPaid)}</td>
     <td style="padding:5px 6px;color:${tRem>0?'#dc2626':'#9ca3af'}">${fmtNum(tRem)}</td>
     <td></td></tr>`;
+  const hint = isPrepaid ? `<div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;color:#3730a3;font-size:10.5px;padding:7px 10px;margin-bottom:8px">✋ <b>수동 차감</b> — 선급차감할 주문을 직접 선택하세요. 체크한 주문만 <b>전액</b> 선급차감되고, 나머지는 '일반' 미수로 남습니다. (자동 배분·분할 없음 · 잔액 초과 선택 불가 · 🔒 발행일 이전 제외)</div>` : '';
   return `<div style="margin-top:10px;border-top:1px dashed #e5e7eb;padding-top:8px;overflow-x:auto">
-    <table style="width:100%;border-collapse:collapse;min-width:540px">${head}${body}${foot}</table>
+    ${hint}
+    <table style="width:100%;border-collapse:collapse;min-width:600px">${head}${body}${foot}</table>
   </div>`;
 }
 
 function _creditPrepaidCard(c){
   const st = creditPrepaidStatus(c);
+  let selCnt=0;
+  (projects||[]).forEach(p=>{ if(p.customerName===c.name)(p.orders||[]).forEach(o=>{ if(o.settlement==="선급차감") selCnt++; }); });
   const done = st.remaining<=0;
   const color = done ? '#16a34a' : '#db2777';
   const invStatus = c.credit.invoiceDate
@@ -6209,13 +6259,14 @@ function _creditPrepaidCard(c){
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;cursor:pointer" onclick="toggleCreditDetail('${_escCreditName(c.name)}')" title="클릭하면 주문·계산서 내역이 펼쳐집니다">
       <span style="font-size:15px;font-weight:800;color:#1f2937">${c.name}</span>
       <span style="font-size:10px;font-weight:700;color:#9d174d;background:#fdf2f8;border-radius:5px;padding:2px 7px">💳 선급금</span>
+      <span style="font-size:10px;font-weight:700;color:#4338ca;background:#eef2ff;border:1px solid #c7d2fe;border-radius:5px;padding:2px 7px">✋ 수동 차감</span>
       ${done?'<span style="font-size:10px;font-weight:700;color:#16a34a;background:#f0fdf4;border-radius:5px;padding:2px 7px">소진 완료</span>':''}
       <span style="margin-left:auto;color:#9ca3af;font-size:11px">${_creditOpen===c.name?'▲ 닫기':'▼ 내역'}</span>
     </div>
     ${_gauge(st.usedPct, color)}
     <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:10px">
       <span style="color:#6b7280">선급 <b style="color:#374151">${fmtNum(st.total)}</b></span>
-      <span style="color:#6b7280">차감 <b style="color:#374151">${fmtNum(st.consumed)}</b></span>
+      <span style="color:#6b7280">차감 <b style="color:#374151">${fmtNum(st.consumed)}</b> <span style="color:#9ca3af">(선택 ${selCnt}건)</span></span>
       <span style="color:#6b7280">잔액 <b style="color:${color}">${fmtNum(st.remaining)}</b></span>
     </div>
     <div style="font-size:11px;color:#9ca3af;border-top:1px solid #f3f4f6;padding-top:8px">
