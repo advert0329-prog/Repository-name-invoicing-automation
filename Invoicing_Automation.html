@@ -1444,6 +1444,48 @@ function _kpiLineChart(months, series, opts){
   svg += `</svg>`;
   return svg;
 }
+// KPI 월별 추이 — 세로막대형 (월별 그룹 · 목표선 · 축 수치 · 값 라벨)
+function _kpiBarChart(months, series, opts){
+  opts = opts||{};
+  const W=300,H=140, padL=34,padR=12,padT=24,padB=18;
+  const n = months.length;
+  let maxY = opts.maxY;
+  if(maxY==null){ let m=0; series.forEach(sr=>sr.pts.forEach(pt=>{ if(pt.v!=null && pt.v>m) m=pt.v; }));
+    (opts.goals||[]).forEach(g=>{ if(g.v>m) m=g.v; }); maxY = m<=0 ? 1 : m*1.28; }
+  const ys = (v) => padT + (H-padT-padB)*(1 - Math.max(0,Math.min(maxY,v))/maxY);
+  const plotW = W-padL-padR, groupW = plotW/n, nb = series.length;
+  const bw = Math.max(3, Math.min(20, (groupW*0.62)/nb)), gap = Math.min(4, bw*0.35);
+  const showLabels = n<=6;   // 월 많으면 마지막 달만 값 라벨 표기
+  let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;font-family:inherit">`;
+  // Y축 눈금
+  const ticks = opts.ticks || [0, Math.round(maxY/2), Math.round(maxY)];
+  ticks.forEach(t=>{ const y=ys(t);
+    svg += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" stroke="var(--gray-100)" stroke-width="1"/>`;
+    svg += `<text x="${padL-3}" y="${(y+3).toFixed(1)}" font-size="7.5" fill="#9ca3af" text-anchor="end">${opts.tickFmt?opts.tickFmt(t):t}</text>`; });
+  svg += `<line x1="${padL}" y1="${(H-padB).toFixed(1)}" x2="${W-padR}" y2="${(H-padB).toFixed(1)}" stroke="var(--gray-200)" stroke-width="1"/>`;
+  // 막대 (월별 그룹)
+  months.forEach((mk,gi)=>{
+    const gcx = padL + groupW*gi + groupW/2;
+    const totalW = nb*bw + (nb-1)*gap, x0 = gcx - totalW/2;
+    series.forEach((sr,si)=>{
+      const pt = sr.pts[gi]; if(!pt || pt.v==null) return;
+      const x = x0 + si*(bw+gap), y = ys(pt.v), h = (H-padB)-y;
+      svg += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0,h).toFixed(1)}" rx="1.5" fill="${sr.color}"/>`;
+      if(showLabels || gi===n-1) svg += `<text x="${(x+bw/2).toFixed(1)}" y="${(y-2.5).toFixed(1)}" font-size="7.5" fill="${sr.color}" text-anchor="middle" font-weight="700">${opts.ptFmt?opts.ptFmt(pt.v):pt.v}</text>`;
+    });
+    const mo = parseInt(String(mk).split('-')[1]||mk,10);
+    svg += `<text x="${gcx.toFixed(1)}" y="${H-5}" font-size="8" fill="#9ca3af" text-anchor="middle">${isNaN(mo)?mk:mo+'월'}</text>`;
+  });
+  // 목표선
+  (opts.goals||[]).forEach(g=>{ const y=ys(g.v);
+    svg += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" stroke="${g.color}" stroke-width="1.1" stroke-dasharray="4 3"/>`;
+    svg += `<text x="${W-padR}" y="${(y-2.5).toFixed(1)}" font-size="7.5" fill="${g.color}" text-anchor="end" font-weight="700">${g.label}</text>`; });
+  // 범례
+  let lx=padL;
+  series.forEach(sr=>{ svg += `<rect x="${lx.toFixed(1)}" y="6" width="7" height="7" rx="1.5" fill="${sr.color}"/><text x="${(lx+10).toFixed(1)}" y="12" font-size="8" fill="var(--gray-600)">${sr.name}</text>`; lx += 14 + sr.name.length*8; });
+  svg += `</svg>`;
+  return svg;
+}
 let _agingOpen = null;
 function toggleAging(bucket){ _agingOpen = (_agingOpen===bucket) ? null : bucket; renderPage(currentTab); }
 function _snapTrim(t){ const o={}; ["rev","paid","unpaid","dueRev","onTimeRate","collectRate","recCount","avg","median","g90","g60","gray","g90keys","grayKeys"].forEach(k=>o[k]=t[k]); return o; }
@@ -1469,15 +1511,18 @@ function kpiTrendSummary(kpi){
   return html;
 }
 function kpiTrendCharts(){
-  const months = (kpiSnapshots && typeof kpiSnapshots==="object") ? Object.keys(kpiSnapshots).sort() : [];
-  let html = `<p class="sec-title">📈 KPI 월별 추이 <span style="font-size:11px;color:#9ca3af;font-weight:400">(수금율 · 회수일수 · 장기미수 흐름)</span></p>`;
+  const allMonths = (kpiSnapshots && typeof kpiSnapshots==="object") ? Object.keys(kpiSnapshots).sort() : [];
+  const months = allMonths.slice(-12);   // 최근 12개월만 표시
+  let html = `<p class="sec-title">📈 KPI 월별 추이 <span style="font-size:11px;color:#9ca3af;font-weight:400">(수금율 · 회수일수 · 장기미수 흐름${allMonths.length>12?` · 최근 12개월`:''})</span></p>`;
   if(months.length>=2){
+    const won = v => v==null ? '' : (v>=100000000 ? (Math.round(v/10000000)/10)+'억' : v>=10000 ? Math.round(v/10000)+'만' : fmtNum(v));
     const series = (track, field) => months.map(mk=>({mk, v: (kpiSnapshots[mk]&&kpiSnapshots[mk][track]) ? kpiSnapshots[mk][track][field] : null}));
     const seriesA = (track) => months.map(mk=>({mk, v: (kpiSnapshots[mk]&&kpiSnapshots[mk][track]&&kpiSnapshots[mk][track].g90) ? kpiSnapshots[mk][track].g90.a : null}));
-    const c1 = _kpiLineChart(months, [{name:"기간내(선행)",color:"#4338ca",pts:series("mat","onTimeRate")},{name:"전체(결과)",color:"#16a34a",pts:series("mat","collectRate")}], {maxY:100});
-    const c2 = _kpiLineChart(months, [{name:"기간내(선행)",color:"#7c3aed",pts:series("pat","onTimeRate")},{name:"전체(결과)",color:"#16a34a",pts:series("pat","collectRate")}], {maxY:100});
-    const c3 = _kpiLineChart(months, [{name:"자재 중앙값",color:"#4338ca",pts:series("mat","median")},{name:"특허 평균",color:"#7c3aed",pts:series("pat","avg")}], {});
-    const c4 = _kpiLineChart(months, [{name:"자재",color:"#dc2626",pts:seriesA("mat")},{name:"특허",color:"#be185d",pts:seriesA("pat")}], {});
+    const rateOpts = {maxY:100, ticks:[0,50,100], ptFmt:v=>v+'%', goals:[{v:90,label:"목표 90%",color:"#16a34a"}]};
+    const c1 = _kpiBarChart(months, [{name:"기간내(선행)",color:"#4338ca",pts:series("mat","onTimeRate")},{name:"전체(결과)",color:"#16a34a",pts:series("mat","collectRate")}], rateOpts);
+    const c2 = _kpiBarChart(months, [{name:"기간내(선행)",color:"#7c3aed",pts:series("pat","onTimeRate")},{name:"전체(결과)",color:"#16a34a",pts:series("pat","collectRate")}], rateOpts);
+    const c3 = _kpiBarChart(months, [{name:"자재 중앙값",color:"#4338ca",pts:series("mat","median")},{name:"특허 평균",color:"#7c3aed",pts:series("pat","avg")}], {ptFmt:v=>v+'일', goals:[{v:40,label:"자재 40",color:"#4338ca"},{v:30,label:"특허 30",color:"#7c3aed"}]});
+    const c4 = _kpiBarChart(months, [{name:"자재",color:"#dc2626",pts:seriesA("mat")},{name:"특허",color:"#be185d",pts:seriesA("pat")}], {ptFmt:won, tickFmt:won});
     const card = (t,svg)=>`<div style="background:#fff;border:1px solid var(--gray-200);border-radius:var(--radius);box-shadow:var(--shadow);padding:12px"><div style="font-size:11px;font-weight:700;color:var(--gray-700);margin-bottom:2px">${t}</div>${svg}</div>`;
     html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px">
       ${card("🧱 자재 수금율 (선행 vs 결과)", c1)}
