@@ -739,6 +739,7 @@ input[type="url"], input[type="password"]{
 
 <input type="file" id="excel-file-input" accept=".xlsx,.xls" style="display:none" onchange="handleExcelFile(event)"/>
 <input type="file" id="attach-file-input" multiple style="display:none" onchange="handleAttachFiles(event)"/>
+<input type="file" id="sales-xlsx-input" accept=".xlsx,.xls" style="display:none" onchange="onSalesXlsxUpload(event)"/>
 
 <script>
 // ── 데이터 ──
@@ -856,7 +857,7 @@ const todayStr = () => {
 
 // ── 페이지네이션 유틸 ──
 // 탭별 현재 페이지 상태 저장 (key: 탭 식별자, value: 1-indexed 페이지 번호)
-const paginationState = { billing: 1, unpaid: 1, patent: 1 };
+const paginationState = { billing: 1, unpaid: 1, unpaidBill: 1, patent: 1 };
 const PAGE_SIZE = 10; // 페이지당 행 수 (공통)
 
 function paginateSlice(arr, pageKey){
@@ -1302,12 +1303,12 @@ function kpiSalesCard(title, color, k, recMode){
       <div style="flex:1;min-width:0">
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
           <span style="font-size:11px;color:var(--gray-600);font-weight:600">기간내수금율 (선행)</span>
-          <span style="font-size:14px;font-weight:800;color:${barColor}">${k.onTimeRate==null?(k.dueRev>0?"—":"도래분 없음"):k.onTimeRate+"%"}</span>
+          <span style="font-size:14px;font-weight:800;color:${barColor}">${k.onTimeRate==null?(k.dueRev>0?"—":(k._excel?"—":"도래분 없음")):k.onTimeRate+"%"}</span>
         </div>
         <div style="height:10px;background:var(--gray-100);border-radius:99px;overflow:hidden">
           <div style="height:100%;width:${barW}%;background:${barColor};border-radius:99px"></div>
         </div>
-        <div style="font-size:10px;color:#9ca3af;margin-top:6px">도래분 ${isMat?"40일":"30일"}${recFoot} · 회수완료 ${k.recCount}건</div>
+        <div style="font-size:10px;color:#9ca3af;margin-top:6px">${k._excel?'기한':'도래분'} ${isMat?"40일":"30일"}${recFoot} · 회수완료 ${k.recCount}건</div>
       </div>
     </div>
   </div>`;
@@ -1703,7 +1704,10 @@ function renderDashboard(){
 
   // ── 대금관리 KPI (자재+특허 · 예외 현장 제외 · 현재 시점) ──
   const kpi = computeKpis();
-  const mk = kpi.mat, pk = kpi.pat;
+  // [회수현황] 엑셀 업로드 데이터가 있으면 그 KPI(전체매출 기준)로 매출·회수/장기미수 표시
+  const salesKpi = (salesUnpaidData && salesUnpaidData.kpi && salesUnpaidData.kpi.mat) ? salesUnpaidData.kpi : kpi;
+  const _kpiExcel = !!(salesUnpaidData && salesUnpaidData.kpi && salesUnpaidData.kpi.mat);
+  const mk = salesKpi.mat, pk = salesKpi.pat;
 
   const ctTypes=["공고","컨설팅","기술자재형","자재판매형","타공법","기타"];
   const _bkDone = _lastBackupDate === _todayStrLocal();
@@ -1715,7 +1719,7 @@ function renderDashboard(){
     <div><p class="sec-title" style="margin-top:0">📊 전월 대비 변화 <span style="font-size:11px;color:#9ca3af;font-weight:400">(신규 90일 진입 · 전환율)</span></p>${kpiTrendSummary(kpi)}</div>
   </div>`;
   html += `
-  <p class="sec-title">💰 매출 · 회수 현황 <span style="font-size:11px;color:#9ca3af;font-weight:400">(공급가액·실수금·회수 성과${kpi.exCount>0?` · 예외 ${kpi.exCount}현장 제외`:""})</span></p>
+  <p class="sec-title">💰 매출 · 회수 현황 <span style="font-size:11px;color:#9ca3af;font-weight:400">(공급가액·실수금·회수 성과${_kpiExcel?` · 📊 매출현황 엑셀 기준${salesUploadedAt?` · ${_sxFmtUploaded()}`:''}`:(salesKpi.exCount>0?` · 예외 ${salesKpi.exCount}현장 제외`:"")})</span></p>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
     ${kpiSalesCard("🧱 자재대금", "var(--indigo)", mk, "median")}
     ${kpiSalesCard("🔖 특허료", "var(--purple)", pk, "avg")}
@@ -1725,8 +1729,8 @@ function renderDashboard(){
     <span>실수금 <strong style="color:var(--green)">${fmtNum(mk.paid+pk.paid)}</strong></span>
     <span>미수 <strong style="color:${(mk.unpaid+pk.unpaid)>0?'var(--red)':'var(--gray-400)'}">${fmtNum(mk.unpaid+pk.unpaid)}</strong></span>
   </div>
-  <div style="font-size:10px;color:#9ca3af;text-align:right;margin-bottom:18px;padding:0 4px">기간내수금율=선행 · 전체수금율=결과 (도래분 기준 · 자재 40일/특허 30일)</div>`;
-  html += kpiAgingSection(kpi);
+  <div style="font-size:10px;color:#9ca3af;text-align:right;margin-bottom:18px;padding:0 4px">기간내수금율=선행 · 전체수금율=결과 (${_kpiExcel?'전체 매출 기준':'도래분 기준'} · 자재 40일/특허 30일)</div>`;
+  html += kpiAgingSection(salesKpi);
   html += kpiTrendCharts();
   if(projects.length===0){
     html+=`<div class="info-box info-blue" style="text-align:center;padding:20px">📥 <strong>엑셀 가져오기</strong> 탭에서 기존 데이터를 불러오거나 <strong>현장 관리</strong>에서 직접 등록하세요.</div>`;
@@ -3639,7 +3643,10 @@ function renderBilling(){
 function renderUnpaid(){
   // [트랙 B] 업체별 보기 모드면 별도 렌더로 위임
   if (upViewMode === "customer") return renderUnpaidByCustomer();
+  // [청구서별] 엑셀 기반 계산서 건별 에이징 조회로 전환
+  return _renderSalesXlsxBillView();
 
+  // ↓ (구) 대시보드 기반 청구서별 — 엑셀 전용 전환으로 미사용(보존)
   // 청구서 기반 미수금
   const billUnpaid = allBills.filter(b => b.status !== "수금완료");
 
@@ -4039,11 +4046,16 @@ function upToggleCustomer(customerName){
 function openTrackBPreview(customerName, stage){ openTrackPreview(customerName, stage, "B"); }
 function openTrackCPreview(customerName, stage){ openTrackPreview(customerName, stage, "C"); }
 
-function openTrackPreview(customerName, stage, track){
+function openTrackPreview(customerName, stage, track, preGroup){
   track = track || "B";
-  // 트랙별 데이터 수집기 / 메일 빌더 선택
-  const groups = (track === "C") ? collectUnpaidTrackC(getViewReferenceDate()) : collectUnpaidTrackB(getViewReferenceDate());
-  const g = groups.find(x => x.customerName === customerName);
+  // 트랙별 데이터 수집기 / 메일 빌더 선택 (preGroup 제공 시 엑셀 기반 그룹 직접 사용)
+  let g;
+  if (preGroup) {
+    g = preGroup;
+  } else {
+    const groups = (track === "C") ? collectUnpaidTrackC(getViewReferenceDate()) : collectUnpaidTrackB(getViewReferenceDate());
+    g = groups.find(x => x.customerName === customerName);
+  }
   if (!g) {
     alert("업체 데이터를 찾지 못했습니다: " + customerName + (track==="C"?" (트랙 C)":" (트랙 B)"));
     return;
@@ -4099,14 +4111,18 @@ function openTrackPreview(customerName, stage, track){
 
   // 차수별 색상·라벨 (트랙별 라벨 차별화)
   const stageMeta = (track === "C") ? {
+    "안내": { color:"#64748b", bg:"#f1f5f9", label:"📄 청구 안내 (비독촉)", desc:"예외 업체용 · 특허료 미수 내역 안내 (입금요청·독촉 아님)" },
     "1":   { color:"#10b981", bg:"#ecfdf5", label:"🔖 1차 · 정기 리마인드",   desc:"익월 10일 자동 발송 (트랙 C · 특허료 정기 리마인드)" },
     "2":   { color:"#3b82f6", bg:"#eff6ff", label:"🔖 2차 · 재확인",          desc:"익월 25일 자동 발송 (트랙 C · 재확인 톤)" },
     "2.5": { color:"#f59e0b", bg:"#fffbeb", label:"🔖 2.5차 · 불이익 경고",   desc:"말일+1영업일 (트랙 C · 미결제 확정·유선 협의 필수)" },
+    "2.7": { color:"#6366f1", bg:"#eef2ff", label:"🔖 2.7차 · 입금예정일 확인", desc:"2.5차 유선 협의 후(이벤트성) · 합의된 입금예정일 확인" },
     "3":   { color:"#dc2626", bg:"#fef2f2", label:"🔖 3차 · 법적 조치 예고",   desc:"D+90 · 누적 ₩500만 이상 · 대표 결재 후 정식 통지" },
   } : {
+    "안내": { color:"#64748b", bg:"#f1f5f9", label:"📄 청구 안내 (비독촉)", desc:"예외 업체용 · 자재 대금 미수 내역 안내 (입금요청·독촉 아님)" },
     "1":   { color:"#10b981", bg:"#ecfdf5", label:"1차 · 정중 안내",       desc:"익월 10일 자동 발송 (정중한 리마인드 톤)" },
     "2":   { color:"#3b82f6", bg:"#eff6ff", label:"2차 · 재안내",         desc:"익월 25일 자동 발송 (재안내·협조 요청 톤)" },
     "2.5": { color:"#f59e0b", bg:"#fffbeb", label:"2.5차 · 미결제 확정",  desc:"말일+1영업일 (미결제 확정·신뢰 관계 강조)" },
+    "2.7": { color:"#6366f1", bg:"#eef2ff", label:"2.7차 · 입금예정일 확인", desc:"2.5차 유선 협의 후(이벤트성) · 합의된 입금예정일 확인" },
     "3":   { color:"#dc2626", bg:"#fef2f2", label:"3차 · 법적 조치 예고",  desc:"D+90 · 대표 결재 후 정식 통지" },
   };
   const meta = stageMeta[stage] || stageMeta["1"];
@@ -4261,9 +4277,11 @@ function openDunningView(track, customerName, sentAtIso){
     : "(시각 미상)";
   const trackName = (track === "C") ? "트랙 C · 특허료" : "트랙 B · 자재";
   const stageStyle = {
+    "안내": { color:"#64748b", icon:"📄" },
     "1":   { color:"#10b981", icon:"🟢" },
     "2":   { color:"#3b82f6", icon:"🔵" },
     "2.5": { color:"#f59e0b", icon:"🟠" },
+    "2.7": { color:"#6366f1", icon:"🟣" },
     "3":   { color:"#dc2626", icon:"🔴" },
   };
   const s = stageStyle[String(entry.stage)] || stageStyle["1"];
@@ -4322,7 +4340,7 @@ function openDunningView(track, customerName, sentAtIso){
   const html = `
     <div style="background:#fafbfc;padding:16px 20px;border-bottom:1px solid #e5e7eb">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-        <span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:${s.color}20;color:${s.color};border:1px solid ${s.color};border-radius:12px;font-size:11px;font-weight:700">${s.icon} ${entry.stage}차</span>
+        <span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:${s.color}20;color:${s.color};border:1px solid ${s.color};border-radius:12px;font-size:11px;font-weight:700">${s.icon} ${entry.stage==='안내'?'청구 안내':entry.stage+'차'}</span>
         <span style="font-size:11px;color:#6b7280">${trackName}</span>
         <span style="font-size:11px;color:#6b7280">·</span>
         <span style="font-size:11px;color:#6b7280">${monthLabelTxt}</span>
@@ -4369,7 +4387,567 @@ function copyDunningBody(btn){
   }).catch(() => alert("복사 실패. 본문을 직접 선택하여 복사해 주세요."));
 }
 
+// ════════ [1단계] 매출현황 엑셀 기반 미수 집계 (특허료·자재판매 탭) ════════
+//  규칙: 매출일=계산서발행일 · 매출액(v-)=공급가액 · 입금일=실제입금일
+//        미수판정=수금예정액(V+)>0 · 상계(매출액<0)=순액 반영+라인표기
+//        표기 청구액=공급가액(부분입금은 수금예정액을 VAT 제거해 공급가액 환산)
+let salesUnpaidData = null;   // { Blist, Clist, stats, fileName }
+let salesUploadedAt = "";     // 최종 업로드 시각(ISO) — 전 탭 공유·매일 갱신
+const SALES_UNPAID_KEY = "sales_unpaid_v1";
+function loadSalesUnpaidLocal(){ try{ const r=localStorage.getItem(SALES_UNPAID_KEY); if(r){ const o=JSON.parse(r); salesUnpaidData=o.data||null; salesUploadedAt=o.uploadedAt||""; } }catch(e){ salesUnpaidData=null; salesUploadedAt=""; } }
+function saveSalesUnpaidLocal(){ try{ localStorage.setItem(SALES_UNPAID_KEY, JSON.stringify({data:salesUnpaidData, uploadedAt:salesUploadedAt})); }catch(e){} }
+function _sxFmtUploaded(){ if(!salesUploadedAt) return ""; const d=new Date(salesUploadedAt); if(isNaN(d.getTime())) return ""; return `${d.getMonth()+1}월 ${d.getDate()}일 ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; }
+// ── 매출현황 파싱 데이터 Firebase 동기화 (트랙 이력과 동일 패턴, 별도 노드) ──
+let _sxFbRef = null, _sxFbListening = false, _sxIgnoreNext = false;
+function sxFbConnect(){ if(!_fbDb) return; _sxFbRef = _fbDb.ref("netform_app/salesUnpaid"); }
+async function sxFbSave(){ if(!_sxFbRef) return; try{ _sxIgnoreNext=true; const payload=JSON.parse(JSON.stringify({ data:salesUnpaidData, uploadedAt:salesUploadedAt })); await _sxFbRef.set(payload); }catch(e){ console.warn("salesUnpaid Firebase 저장 실패:", e.message); } }
+async function sxFbLoad(){ if(!_sxFbRef) return false; try{ const snap=await _sxFbRef.get(); if(snap.exists()){ const v=snap.val()||{}; if(v.data){ salesUnpaidData=v.data; salesUploadedAt=v.uploadedAt||""; saveSalesUnpaidLocal(); return true; } } }catch(e){ console.warn("salesUnpaid Firebase 로드 실패:", e.message); } return false; }
+function sxFbListen(){ if(!_sxFbRef || _sxFbListening) return; _sxFbRef.on("value", snap=>{ if(_sxIgnoreNext){ _sxIgnoreNext=false; return; } const v=snap.val(); if(v && v.data){ salesUnpaidData=v.data; salesUploadedAt=v.uploadedAt||""; saveSalesUnpaidLocal(); if(currentTab===4) renderUnpaid(); } }); _sxFbListening=true; }
+function _sxNum(v){ if(v==null||v==="") return null; const n=parseFloat(String(v).replace(/[^0-9.\-]/g,"")); return isNaN(n)?null:n; }
+function parseSalesUnpaid(wb){
+  const sheet = (nm)=> wb.Sheets[nm] ? XLSX.utils.sheet_to_json(wb.Sheets[nm], {header:1, raw:true}) : null;
+  // 헤더 이름으로 열 위치 자동 탐색 (파일마다 빈 열·열순서가 달라도 안전)
+  function colMap(header){
+    const find=(...keys)=>{ for(let i=0;i<(header||[]).length;i++){ const h=String(header[i]||""); if(keys.some(k=>h.includes(k))) return i; } return -1; };
+    return { name:find("업체명"), site:find("현장명"), amt:find("매출액"),
+             exp:find("수금예정액"), ip:find("입금액"), date:find("매출일"), dep:find("입금일"), tot:find("합계금액") };
+  }
+  // [회수현황] 전체 행(완납 포함) 기준 KPI — 경영자금현황판과 동일: 전체매출 대비 수금율, 상계(빈칸) 제외
+  // 미수=수금예정액/1.1(미수금관리와 동일), 실수금=매출−미수, 완납=수금예정액0, 회수일=입금일−매출일
+  function kpiOf(rows, D){
+    if(!rows || !rows.length) return null;
+    const m = colMap(rows[0]); if(m.name<0 || m.exp<0 || m.amt<0) return null;
+    const kindLabel = (D===30) ? "특허" : "자재";
+    let rev=0, mis=0, onT=0; const rec=[];
+    let g90={c:0,a:0}, g60={c:0,a:0}, gray={c:0,a:0};
+    const g90items=[], g60items=[], grayItems=[];
+    rows.slice(1).forEach(r=>{
+      const name=String(r[m.name]||"").trim(); if(!name) return;
+      const expRaw=r[m.exp];
+      if(expRaw===undefined || expRaw===null || expRaw==="") return;   // 상계(수금예정액 빈칸) 제외
+      const exp=_sxNum(expRaw); if(exp===null) return;
+      const rv=_sxNum(m.amt>=0?r[m.amt]:0)||0;                          // 매출액(공급가액)
+      const un=exp/1.1;                                                 // 미수(공급) = 수금예정액/1.1
+      rev+=rv; mis+=un;
+      const inv=_sxDateStr(r[m.date]);
+      const full=(Math.round(exp)===0);                                // 완납 = 수금예정액 0
+      const dep=(m.dep>=0)?_sxDateStr(r[m.dep]):"-";
+      if(full && dep!=="-" && inv!=="-"){ const rd=_daysOverdueCal(dep, inv); if(rd>=0){ rec.push(rd); if(rd<=D) onT+=rv; } }
+      if(un>0.5 && inv!=="-"){ const el=_daysOverdueCal(todayStr(), inv);
+        const d={name, kind:kindLabel, remain:Math.round(un), el, inv};
+        if(el>=90){ g90.c++; g90.a+=un; g90items.push(d); }
+        if(el>60){ g60.c++; g60.a+=un; g60items.push(d); }
+        if(el>60 && el<90){ gray.c++; gray.a+=un; grayItems.push(d); }
+      }
+    });
+    const paid=rev-mis; const pct=(n,d)=> d>0 ? Math.round(n/d*1000)/10 : null;
+    const avg=rec.length ? Math.round(rec.reduce((s,x)=>s+x,0)/rec.length*10)/10 : null;
+    let median=null; if(rec.length){ const v=rec.slice().sort((a,b)=>a-b); const mi=v.length>>1; median=v.length%2 ? v[mi] : Math.round((v[mi-1]+v[mi])/2*10)/10; }
+    return { rev:Math.round(rev), paid:Math.round(paid), unpaid:Math.round(mis), dueRev:Math.round(rev),
+      collectRate:pct(paid,rev), onTimeRate:pct(onT,rev), recCount:rec.length, avg, median,
+      g90:{c:g90.c,a:Math.round(g90.a)}, g60:{c:g60.c,a:Math.round(g60.a)}, gray:{c:gray.c,a:Math.round(gray.a)},
+      g90keys:[], grayKeys:[], g90items, g60items, grayItems, _excel:true };
+  }
+  function proc(rows){
+    const dest={}; let charge=0, offset=0, partial=0;
+    if(!rows || !rows.length) return { list:[], credits:[], charge, offset, partial };
+    const m = colMap(rows[0]);
+    if(m.name<0 || m.exp<0) return { list:[], credits:[], charge, offset, partial, badHeader:true };
+    rows.slice(1).forEach(r=>{
+      const name=String(r[m.name]||"").trim(); if(!name) return;
+      const exp=_sxNum(r[m.exp]);                        // 수금예정액(VAT포함, 상계·부분입금 이미 반영)
+      if(exp===null || Math.round(exp)===0) return;
+      const ip =_sxNum(m.ip>=0?r[m.ip]:0)||0;            // 입금액(부분입금 판별용)
+      const supply = exp/1.1;                            // 공급가액(VAT별도) 환산 — 대시보드 수금예정액과 동일 기준
+      const g = dest[name] || (dest[name]={name, supply:0, items:[], offsets:[]});
+      g.supply += supply;
+      if(exp>0){                                         // 미수(완전/부분)
+        charge++; if(ip>0) partial++;
+        g.items.push({ date:r[m.date], site:String(r[m.site]||""), supply:Math.round(supply), partial:(ip>0) });
+      } else {                                           // 상계·공제(수금예정액 음수) → 순액 반영 + 라인표기
+        offset++;
+        g.offsets.push({ date:r[m.date], site:String(r[m.site]||""), supply:Math.round(supply) });
+      }
+    });
+    const all = Object.values(dest);
+    const netAll  = all.reduce((s,g)=>s+g.supply,0);                                         // 대시보드 대조용 전체 순액
+    const list    = all.filter(g=>Math.round(g.supply)>=1000).sort((a,b)=>b.supply-a.supply);// 발송 대상(1천원 이상 · 상계 잔여 노이즈 제외)
+    const credits = all.filter(g=>Math.round(g.supply)<0);                                   // 과입금·크레딧(발송 제외)
+    return { list, credits, netAll, charge, offset, partial };
+  }
+  const bRows=sheet("자재판매"), cRows=sheet("특허료");
+  const B = proc(bRows);
+  const C = proc(cRows);
+  const kpi = { mat:kpiOf(bRows,40), pat:kpiOf(cRows,30), exCount:0 };   // [회수현황] 전체매출 기준 KPI
+  const sum  = (l)=> Math.round(l.reduce((s,g)=>s+g.supply,0));
+  return { Blist:B.list, Clist:C.list, Bcredits:B.credits, Ccredits:C.credits, kpi,
+    stats:{ bFirms:B.list.length, bSupply:sum(B.list), bCharge:B.charge, bOffset:B.offset, bPartial:B.partial, bCredit:B.credits.length, bNet:Math.round(B.netAll),
+            cFirms:C.list.length, cSupply:sum(C.list), cCharge:C.charge, cOffset:C.offset, cPartial:C.partial, cCredit:C.credits.length, cNet:Math.round(C.netAll) } };
+}
+function onSalesXlsxUpload(e){
+  const f=e.target.files && e.target.files[0]; if(!f) return;
+  const rd=new FileReader();
+  rd.onload=(ev)=>{
+    try{
+      const wb=XLSX.read(ev.target.result,{type:"array"});
+      if(!wb.Sheets["자재판매"] && !wb.Sheets["특허료"]){ alert("이 파일에 '특허료' 또는 '자재판매' 탭이 없습니다. 매출현황 엑셀을 올려주세요."); return; }
+      const res=parseSalesUnpaid(wb); res.fileName=f.name;
+      salesUnpaidData=res;
+      salesUploadedAt=new Date().toISOString();   // 최종 업로드 시각 기록
+      saveSalesUnpaidLocal();                      // localStorage 저장(재접속 유지)
+      if(_sxFbRef) sxFbSave();                      // Firebase 동기화(기기 간 공유)
+      if(currentTab===4) renderUnpaid();
+      if(window._showSaved) window._showSaved(`📥 매출현황 파싱 완료 · 자재 ${res.stats.bFirms}개 / 특허 ${res.stats.cFirms}개 업체`);
+    }catch(err){ alert("엑셀 파싱 중 오류: "+err.message); }
+  };
+  rd.readAsArrayBuffer(f);
+  e.target.value="";
+}
+function _salesXlsxPanelHTML(){
+  const s = salesUnpaidData;
+  const btn = `<button class="btn btn-primary btn-sm" onclick="document.getElementById('sales-xlsx-input').click()">📥 매출현황 엑셀 업로드</button>`;
+  const hint = ``;
+  let body="";
+  if(s){
+    const st=s.stats;
+    const card=(icon,label,firms,supply,ch,off,pt,credit,net,color)=>`
+      <div class="stat-card" style="text-align:left;padding:12px;border-left:4px solid ${color}">
+        <div style="font-size:11px;color:var(--gray-600);font-weight:700">${icon} ${label}</div>
+        <div style="font-size:20px;font-weight:800;color:${color};margin-top:2px">${fmtNum(supply)}<span style="font-size:11px;color:#9ca3af;font-weight:600"> · 발송대상 ${firms}개 업체</span></div>
+        <div style="font-size:10.5px;color:#9ca3af;margin-top:3px">미수 ${ch}건 · 상계 ${off}건 · 부분입금 ${pt}건${credit>0?` · 과입금 ${credit}개(발송제외)`:``}</div>
+        ${credit>0?`<div style="font-size:10px;color:#9ca3af;margin-top:2px">전체 순액(과입금 반영·엑셀 대시보드 기준): <b>${fmtNum(net)}</b></div>`:``}
+      </div>`;
+    body = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+        ${card("🧱","자재(트랙 B) 미수 · 공급가액", st.bFirms, st.bSupply, st.bCharge, st.bOffset, st.bPartial, st.bCredit, st.bNet, "var(--indigo)")}
+        ${card("🔖","특허료(트랙 C) 미수 · 공급가액", st.cFirms, st.cSupply, st.cCharge, st.cOffset, st.cPartial, st.cCredit, st.cNet, "var(--purple)")}
+      </div>
+      <div style="font-size:10.5px;color:#9ca3af;margin-top:8px">${s.fileName?`📄 ${s.fileName}`:''}${salesUploadedAt?`${s.fileName?' · ':''}🕒 최종 업로드 ${_sxFmtUploaded()}`:''}</div>`;
+  } else {
+    body = `<div style="font-size:11px;color:#6b7280;margin-top:8px">매출현황 엑셀을 올리면 특허료·자재판매 탭을 규칙대로 집계해 <b>업체 수·공급가액 미수·상계·부분입금</b>을 요약해 보여줍니다.</div>`;
+  }
+  return `<div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:10px;padding:12px 14px;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">${btn}${hint}</div>
+      ${body}
+    </div>`;
+}
+
+// ─── [2단계] 엑셀 기반 업체별 목록 (건별 명세·부분입금·상계 라인) ───
+let _sxOpen = null;
+function _sxDateStr(v){
+  if(v==null||v==="") return "-";
+  if(typeof v==="number"){ const d=new Date(Math.round((v-25569)*86400000)); return isNaN(d.getTime())?"-":`${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")}`; }
+  return String(v).slice(0,10);
+}
+function _sxOverdue(v){ const s=_sxDateStr(v); if(s==="-") return null; const d=new Date(s); if(isNaN(d.getTime())) return null; const t=new Date(todayStr()); return Math.round((Date.UTC(t.getFullYear(),t.getMonth(),t.getDate())-Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()))/86400000); }
+// [5단계] 청구월(발행월) 선택 — 선택월 발행분=당월, 그 이전=이전미수, 선택월 이후 발행분=제외
+let _sxMonthKey = null;   // "YYYY-MM" (null이면 전월 자동)
+function _sxPrevMonthKey(){ const t=new Date(todayStr()); t.setMonth(t.getMonth()-1); return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,"0")}`; }
+function _sxRefParts(){
+  let y,m0;
+  if(_sxMonthKey && /^\d{4}-\d{2}$/.test(_sxMonthKey)){ const a=_sxMonthKey.split("-").map(Number); y=a[0]; m0=a[1]-1; }
+  else { const t=new Date(todayStr()); t.setMonth(t.getMonth()-1); y=t.getFullYear(); m0=t.getMonth(); }
+  return { year:y, month0:m0, monthLabel:m0+1, key:`${y}-${String(m0+1).padStart(2,"0")}`, endTime:new Date(y,m0+1,0,23,59,59,999).getTime() };
+}
+// 선택 청구월 기준으로 한 트랙 그룹을 당월/이전미수/상계로 분리
+function _sxSplitItems(grp){
+  const rp=_sxRefParts(); const asOf=new Date(todayStr());
+  const cur=[],prev=[],offs=[];
+  (grp&&grp.items||[]).forEach(it=>{ const ds=_sxDateStr(it.date); if(ds==="-")return; const d=new Date(ds); if(isNaN(d.getTime()))return;
+    if(d.getTime()>rp.endTime) return;                                   // 선택 청구월 이후 발행분 제외
+    if(d.getFullYear()===rp.year && d.getMonth()===rp.month0) cur.push({site:it.site,date:ds,supply:it.supply,partial:it.partial});
+    else prev.push({site:it.site,date:ds,supply:it.supply,partial:it.partial,ov:_daysOverdueCal(asOf,ds)});
+  });
+  (grp&&grp.offsets||[]).forEach(of=>{ const ds=_sxDateStr(of.date); const d=new Date(ds); if(isNaN(d.getTime()))return; if(d.getTime()>rp.endTime)return; offs.push({site:of.site,date:ds,supply:of.supply}); });
+  const supply=cur.reduce((a,i)=>a+i.supply,0)+prev.reduce((a,i)=>a+i.supply,0)+offs.reduce((a,i)=>a+i.supply,0);
+  return {cur,prev,offs,supply,rp};
+}
+function _sxHasLines(grp){ if(!grp) return false; const sp=_sxSplitItems(grp); return (sp.cur.length+sp.prev.length+sp.offs.length)>0; }
+function _sxGroupSupply(grp){ return grp?_sxSplitItems(grp).supply:0; }
+function _sxAvailMonths(){
+  const set={}; const add=(arr)=>arr&&arr.forEach(g=>(g.items||[]).concat(g.offsets||[]).forEach(i=>{ const ds=_sxDateStr(i.date); if(ds==="-")return; const k=ds.slice(0,7); set[k]=(set[k]||0)+1; }));
+  add(salesUnpaidData&&salesUnpaidData.Blist); add(salesUnpaidData&&salesUnpaidData.Clist);
+  const prevKey=_sxPrevMonthKey(); set[prevKey]=set[prevKey]||0;   // 전월(자동 기본값) 항상 포함
+  return Object.keys(set).filter(k=>k<=prevKey).sort((a,b)=>b.localeCompare(a));
+}
+function _sxSetMonth(k){ _sxMonthKey=k||null; _sxOpen=null; paginationState.unpaid=1; paginationState.unpaidBill=1; if(currentTab===4&&upViewMode==='customer') renderUnpaidByCustomer(); }
+function _sxShiftMonth(dir){   // dir=+1 최신월, -1 이전월
+  const months=_sxAvailMonths(); if(!months.length) return;
+  const curKey=_sxRefParts().key; let idx=months.indexOf(curKey); if(idx<0) idx=0;
+  const ni=idx-dir; if(ni<0||ni>=months.length) return;
+  _sxSetMonth(months[ni]);
+}
+// 기존 대시보드 월 선택기와 동일한 형태: 라벨 + ◀ 드롭다운 ▶ + 안내
+function _sxMonthBar(){
+  const months=_sxAvailMonths(); const autoKey=_sxPrevMonthKey(); const curKey=_sxRefParts().key;
+  const isAuto=!_sxMonthKey;
+  const idx=months.indexOf(curKey);
+  const canNewer=idx>0, canOlder=idx>=0 && idx<months.length-1;
+  const fmtK=(k)=>{ const a=k.split("-"); return `${a[0]}년 ${String(a[1]).padStart(2,'0')}월`; };
+  const arrow=(dir,on,label)=>`<button onclick="_sxShiftMonth(${dir})" ${on?'':'disabled'} title="${label}" style="width:26px;height:26px;border:1px solid #d1d5db;background:#fff;border-radius:5px;font-size:11px;cursor:${on?'pointer':'not-allowed'};color:${on?'#1f2937':'#d1d5db'};font-family:inherit;padding:0;display:flex;align-items:center;justify-content:center">${dir<0?'◀':'▶'}</button>`;
+  const opts=months.map(k=>`<option value="${k}" ${(!isAuto&&k===curKey)?'selected':''}>${fmtK(k)}분</option>`).join("");
+  return `<div class="stat-card" style="padding:12px 14px;margin-bottom:12px;${isAuto?'':'background:#eff6ff;border-color:#bfdbfe'}">
+      <div class="label" style="margin-bottom:5px">${isAuto?'📅 청구월 (전월)':'🔍 조회 중인 청구월'}</div>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        ${arrow(-1,canOlder,'이전 월')}
+        <select onchange="_sxSetMonth(this.value==='__auto__'?'':this.value)" style="font-size:13px;font-weight:700;color:${isAuto?'#374151':'#1d4ed8'};border:1px solid ${isAuto?'#d1d5db':'#93c5fd'};border-radius:5px;padding:4px 8px;background:#fff;cursor:pointer;font-family:inherit;min-width:150px;text-align:center;text-align-last:center">
+          <option value="__auto__" ${isAuto?'selected':''}>📅 자동 (${fmtK(autoKey)})</option>
+          ${opts}
+        </select>
+        ${arrow(1,canNewer,'다음 월')}
+        ${isAuto?`<span style="font-size:10px;color:#9ca3af;margin-left:2px">자동 — 오늘 기준 전월</span>`:`<button onclick="_sxSetMonth('')" style="font-size:10px;color:#6b7280;background:transparent;border:none;cursor:pointer;text-decoration:underline;font-family:inherit;padding:0;margin-left:2px">↻ 자동으로 복귀</button>`}
+      </div>
+    </div>`;
+}
+function _sxMerged(){
+  // 정규화 이름 기준 병합 + 선택 청구월 기준 월별 재집계
+  const map={};
+  (salesUnpaidData&&salesUnpaidData.Blist||[]).forEach(g=>{ const k=_sxNorm(g.name); if(!map[k]) map[k]={name:g.name}; map[k].B=g; map[k].name=g.name; });
+  (salesUnpaidData&&salesUnpaidData.Clist||[]).forEach(g=>{ const k=_sxNorm(g.name); if(!map[k]) map[k]={name:g.name}; map[k].C=g; if(!map[k].B) map[k].name=g.name; });
+  const arr=Object.values(map).map(o=>{ const hasB=_sxHasLines(o.B), hasC=_sxHasLines(o.C);
+      return {...o, hasB, hasC, bSupply:hasB?_sxGroupSupply(o.B):0, cSupply:hasC?_sxGroupSupply(o.C):0, total:(hasB?_sxGroupSupply(o.B):0)+(hasC?_sxGroupSupply(o.C):0)}; })
+    .filter(o=> o.hasB || o.hasC);
+  arr.sort((a,b)=>b.total-a.total); return arr;
+}
+let _sxTrackFilter='all';
+function _sxSetTrackFilter(v){ _sxTrackFilter=v; paginationState.unpaid=1; if(currentTab===4&&upViewMode==='customer') renderUnpaidByCustomer(); }
+function _sxTrackFilterBar(){
+  const all=_sxMerged(); const nB=all.filter(o=>o.hasB).length, nC=all.filter(o=>o.hasC).length;
+  const btn=(v,label,n,color)=>{ const on=_sxTrackFilter===v;
+    return `<button onclick="_sxSetTrackFilter('${v}')" style="border:1px solid ${on?color:'#e5e7eb'};background:${on?color:'#fff'};color:${on?'#fff':'#4b5563'};border-radius:999px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">${label} ${n}</button>`; };
+  return `<div style="display:flex;gap:7px;margin-bottom:10px;flex-wrap:wrap">${btn('all','전체',all.length,'#4b5563')}${btn('B','📦 자재',nB,'#4338ca')}${btn('C','🔖 특허료',nC,'#7c3aed')}</div>`;
+}
+function _sxToggle(name){ _sxOpen=(_sxOpen===name)?null:name; if(currentTab===4&&upViewMode==='customer') renderUnpaidByCustomer(); }
+function _sxTrackTable(sp){
+  const row=(i,type)=>{ const isOff=type==='off';
+    const ovTxt=(type==='prev'&&i.ov!=null)?` <span style="color:#9ca3af">D+${i.ov}</span>`:'';
+    const tag=type==='prev'?' <span style="font-size:9px;color:#9333ea">이전미수</span>':'';
+    return `<tr style="border-top:1px solid var(--gray-100)">
+      <td style="padding:4px 6px;color:${isOff?'#0e7490':'#374151'}">${isOff?'↩ 상계 · ':''}${i.site||'-'}${tag}</td>
+      <td style="padding:4px 6px;color:#6b7280">${i.date}${ovTxt}</td>
+      <td style="padding:4px 6px;text-align:right;color:${isOff?'#0e7490':(i.partial?'#b45309':'#111827')};font-weight:600">${fmtNum(i.supply)}${i.partial?' <span style="font-size:9px;color:#b45309">부분</span>':''}</td></tr>`; };
+  const body=sp.cur.map(i=>row(i,'cur')).join("")+sp.prev.map(i=>row(i,'prev')).join("")+sp.offs.map(i=>row(i,'off')).join("");
+  return `<table style="width:100%;border-collapse:collapse;font-size:11px">
+      <tr style="font-size:10px;color:#9ca3af"><th style="text-align:left;padding:3px 6px">현장</th><th style="text-align:left;padding:3px 6px">계산서발행일</th><th style="text-align:right;padding:3px 6px">공급가액</th></tr>
+      ${body}</table>`;
+}
+// [옵션 A] 트랙별 색상 박스 — 자재(인디고)·특허료(퍼플) 구획 (선택 청구월 기준)
+function _sxTrackBox(o, track){
+  const g = (track==='B') ? o.B : o.C;
+  if(!g) return "";
+  const sp=_sxSplitItems(g);
+  if((sp.cur.length+sp.prev.length+sp.offs.length)===0) return "";
+  const c = (track==='B')
+    ? {bg:'#eef2ff',bd:'#c7d2fe',bar:'#4338ca',fg:'#3730a3',sub:'#6366f1',title:'📦 자재 (트랙 B)'}
+    : {bg:'#faf5ff',bd:'#e9d5ff',bar:'#7c3aed',fg:'#6b21a8',sub:'#9333ea',title:'🔖 특허료 (트랙 C)'};
+  const cnt = `당월 ${sp.cur.length}건 · 이전미수 ${sp.prev.length}건${sp.offs.length?` · 상계 ${sp.offs.length}건`:''}`;
+  return `<div style="background:${c.bg};border:1px solid ${c.bd};border-left:4px solid ${c.bar};border-radius:9px;padding:11px 13px">
+      <div style="font-size:12px;font-weight:800;color:${c.fg}">${c.title} · ${fmtNum(Math.round(sp.supply))} <span style="font-size:10px;color:${c.sub};font-weight:600">${cnt}</span></div>
+      <div style="background:#fff;border-radius:7px;margin-top:8px;padding:2px 8px">${_sxTrackTable(sp)}</div>
+      ${_sxStageButtons(o.name, track)}
+    </div>`;
+}
+function _sxCard(o){
+  const open=_sxOpen===o.name;
+  const chip=(lbl,has,supply,bg,fg)=> has?`<span style="font-size:10px;font-weight:700;background:${bg};color:${fg};border-radius:5px;padding:2px 7px;margin-left:5px;white-space:nowrap">${lbl} ${fmtNum(Math.round(supply))}</span>`:'';
+  const em=_sxMatchEmail(o.name);
+  const emailLine = em.email
+    ? `<div style="font-size:11px;color:#6b7280;margin-top:3px">✉ ${escHtml(em.email)}${em.status==="manual"?' <span style="color:#2563eb;font-weight:600">(수동지정)</span>':''}</div>`
+    : `<div style="font-size:11px;color:#dc2626;margin-top:3px">🔴 이메일 미매칭 — 상단 <b>이메일 매칭</b>에서 지정하세요</div>`;
+  const head=`<div onclick="_sxToggle('${_escCreditName(o.name)}')" style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 14px;cursor:pointer">
+      <div style="min-width:0"><span style="font-weight:700;font-size:13px">${o.name}</span>${chip('자재',o.hasB,o.bSupply,'#e0e7ff','#4338ca')}${chip('특허',o.hasC,o.cSupply,'#f3e8ff','#7c3aed')}${emailLine}</div>
+      <div style="white-space:nowrap"><b style="color:var(--red);font-size:14px">${fmtNum(Math.round(o.total))}</b> <span style="color:#9ca3af;font-size:11px">${open?'▲':'▼'}</span></div>
+    </div>`;
+  const detail=open?`<div style="padding:12px 14px 14px;border-top:1px solid var(--gray-100);display:flex;flex-direction:column;gap:12px">${_sxTrackBox(o,'B')}${_sxTrackBox(o,'C')}${_sxHistoryBlock(o)}</div>`:'';
+  return `<div style="background:#fff;border:1px solid var(--gray-200);border-radius:10px;margin-bottom:8px;box-shadow:var(--shadow)">${head}${detail}</div>`;
+}
+// [5단계] 업체 발송이력 (정규화 키 병합 조회) — 차수·날짜·청구월·보기
+function _sxHistoryBlock(o){
+  const stageStyle={"안내":{c:"#64748b",i:"📄"},"1":{c:"#10b981",i:"🟢"},"2":{c:"#3b82f6",i:"🔵"},"2.5":{c:"#f59e0b",i:"🟠"},"2.7":{c:"#6366f1",i:"🟣"},"3":{c:"#dc2626",i:"🔴"}};
+  const curKey=_sxRefParts().key;
+  const rowsFor=(track)=>{
+    const hist=getCustomerHistoryByTrack(o.name, track);
+    if(!hist.length) return "";
+    const sorted=hist.slice().sort((a,b)=> new Date(b.sentAt||0)-new Date(a.sentAt||0));
+    const ttl=track==='C'?'🔖 특허료':'📦 자재';
+    const rows=sorted.map(h=>{ const s=stageStyle[String(h.stage)]||stageStyle["1"]; const dt=h.sentAt?new Date(h.sentAt):null;
+      const ds=dt?`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`:'-';
+      const isCur=h.monthKey===curKey;
+      const view=(h.snapshot||h.body)?`<button onclick="openDunningView('${track}','${_escCreditName(o.name)}','${h.sentAt}')" style="padding:2px 8px;background:#eef2ff;color:#4338ca;border:1px solid #c7d2fe;border-radius:5px;font-size:10px;font-weight:600;cursor:pointer;font-family:inherit">📄 보기</button>`:`<span style="font-size:10px;color:#d1d5db">—</span>`;
+      return `<div style="display:grid;grid-template-columns:auto 1fr auto auto;gap:8px;align-items:center;padding:4px 0;border-top:1px dashed #eef2ff;font-size:11px${isCur?';background:#fffdf5':''}">
+         <span style="color:${s.c};font-weight:700;white-space:nowrap">${s.i} ${h.stage==='안내'?'청구안내':h.stage+'차'}</span>
+         <span style="color:#6b7280;min-width:0">${ds} <span style="color:#9ca3af;font-size:9.5px">[${h.monthLabel}월분${isCur?' · 선택월':''}]</span></span>
+         <span style="color:#1f2937;font-weight:600;white-space:nowrap">${fmtNum(h.totalAmount||0)}</span>
+         ${view}
+       </div>`; }).join("");
+    return `<div style="margin-top:4px"><div style="font-size:10.5px;font-weight:700;color:#6b7280">${ttl} 발송이력 ${sorted.length}건</div>${rows}</div>`;
+  };
+  const b=rowsFor('B'), c=rowsFor('C');
+  if(!b && !c) return `<div style="background:#f9fafb;border:1px dashed #e5e7eb;border-radius:8px;padding:8px 12px;font-size:11px;color:#9ca3af">📭 발송 이력 없음 — 발송하면 차수·날짜·발송내용이 여기에 기록됩니다</div>`;
+  return `<div style="background:#f9fafb;border:1px solid #eef2ff;border-radius:8px;padding:9px 12px">
+      <div style="font-size:11px;font-weight:800;color:#374151;margin-bottom:2px">🗂️ 발송 이력 (전체 청구월)</div>${b}${c}</div>`;
+}
+function _salesXlsxListHTML(){
+  const q=(upSearch||"").trim().toLowerCase();
+  let list=_sxMerged();
+  if(_sxTrackFilter==='B') list=list.filter(o=>o.hasB);
+  else if(_sxTrackFilter==='C') list=list.filter(o=>o.hasC);
+  if(q) list=list.filter(o=> o.name.toLowerCase().includes(q) || [o.B,o.C].some(g=> g && (g.items||[]).concat(g.offsets||[]).some(i=>String(i.site||"").toLowerCase().includes(q)) ));
+  const fLabel=_sxTrackFilter==='B'?'자재':_sxTrackFilter==='C'?'특허료':'전체';
+  const rp=_sxRefParts();
+  let html=`<div style="font-size:12px;color:#3730a3;font-weight:700;margin:2px 0 8px">📋 ${rp.year}년 ${rp.monthLabel}월분 · ${fLabel} ${list.length}개 업체</div>${_sxTrackFilterBar()}`;
+  if(!list.length) return html+`<div class="info-box info-green" style="text-align:center;padding:16px">표시할 업체가 없습니다.</div>`;
+  const info = paginateSlice(list, 'unpaid');
+  return html + info.slice.map(_sxCard).join("") + renderPagination('unpaid', info, 'renderUnpaid');
+}
+function _sxViewToggle(active){
+  const btn=(mode,label,on)=>`<button onclick="upSetViewMode('${mode}')" style="padding:7px 14px;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;background:${on?'#fff':'transparent'};color:${on?'#1f2937':'#6b7280'};${on?'box-shadow:0 1px 2px rgba(0,0,0,.06);':''}font-family:inherit">${label}</button>`;
+  return `<div style="display:flex;gap:6px;margin-bottom:10px;background:#f3f4f6;padding:4px;border-radius:8px;width:fit-content">${btn('bill','📄 청구서별',active==='bill')}${btn('customer','📨 업체별',active==='customer')}</div>`;
+}
+function _sxSearchBar(ph){
+  return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:2px 10px 2px 12px">
+      <span style="color:#6b7280;font-size:13px">🔍</span>
+      <input type="text" id="up-search-input" value="${(upSearch||'').replace(/"/g,'&quot;')}" placeholder="${ph||'업체명·현장명 검색...'}" oninput="upSearchInput(this.value)" style="flex:1;border:none;outline:none;padding:9px 6px;font-size:12px;font-family:inherit;background:transparent;min-width:0"/>
+      ${upSearch?`<button onclick="upClearSearch()" style="background:none;border:none;color:#9ca3af;cursor:pointer;padding:4px 6px;font-size:13px">✕</button>`:''}
+    </div>`;
+}
+function _renderSalesXlsxView(){
+  document.getElementById("page-4").innerHTML = `<p class="sec-title">💰 미수금 관리</p>${_sxViewToggle('customer')}${_salesXlsxPanelHTML()}${_sxMonthBar()}${_sxMatchPanelHTML()}${_sxSearchBar()}${_salesXlsxListHTML()}`;
+  if(typeof _restoreUpSearchFocus==='function') _restoreUpSearchFocus();
+}
+// [청구서별] 엑셀 기반 계산서 건별 에이징 조회 — 전체 업체 통합, 경과일 오래된 순
+function _sxAllBillItems(){
+  // 청구서별 = 발행월 무관 '현재 전체 미수' 에이징 (청구월 필터 미적용)
+  const rows=[]; const asOf=new Date(todayStr());
+  const add=(list,track)=>(list||[]).forEach(g=>{
+    (g.items||[]).forEach(it=>{ const ds=_sxDateStr(it.date); if(ds==='-')return; rows.push({name:g.name,track,site:it.site,date:ds,supply:it.supply,ov:_daysOverdueCal(asOf,ds),kind:'mis',partial:it.partial}); });
+    (g.offsets||[]).forEach(of=>{ const ds=_sxDateStr(of.date); if(ds==='-')return; rows.push({name:g.name,track,site:of.site,date:ds,supply:of.supply,ov:_daysOverdueCal(asOf,ds),kind:'off'}); });
+  });
+  add(salesUnpaidData&&salesUnpaidData.Blist,'B');
+  add(salesUnpaidData&&salesUnpaidData.Clist,'C');
+  return rows;
+}
+let _sxBillTrack='all';   // 청구서별 트랙 필터: all | B | C
+function _sxSetBillTrack(v){ _sxBillTrack=v; paginationState.unpaidBill=1; if(currentTab===4&&upViewMode==='bill') renderUnpaid(); }
+function _sxEok(n){ const v=Number(n)||0; return (v/1e8).toFixed(2)+'억'; }
+// 경과일 구간 3분류 (첨부 이미지 기준): 정상 ~40일 / 관리 초과~89일 / 장기미수 90일+
+function _sxAgingBuckets(rows){
+  const mis=rows.filter(r=>r.kind!=='off');
+  const pick=(f)=>mis.filter(f);
+  const b1=pick(r=>r.ov<=40), b2=pick(r=>r.ov>=41&&r.ov<=89), b3=pick(r=>r.ov>=90);
+  const sum=(a)=>a.reduce((s,r)=>s+r.supply,0);
+  return [
+    {label:'정상 (기한내 ~40일)', color:'#22c55e', items:b1, amt:sum(b1)},
+    {label:'관리 (초과~89일)',    color:'#ea580c', items:b2, amt:sum(b2)},
+    {label:'장기미수 (90일+)',    color:'#dc2626', items:b3, amt:sum(b3)},
+  ];
+}
+function _sxBillTrackBar(){
+  const all=_sxAllBillItems().filter(r=>r.kind!=='off');
+  const n=(t)=> t==='all'?all.length:all.filter(r=>r.track===t).length;
+  const btn=(v,label,color)=>{ const on=_sxBillTrack===v;
+    return `<button onclick="_sxSetBillTrack('${v}')" style="border:1px solid ${on?color:'#e5e7eb'};background:${on?color:'#fff'};color:${on?'#fff':'#4b5563'};border-radius:999px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">${label} ${n(v)}</button>`; };
+  return `<div style="display:flex;gap:7px;margin-bottom:12px;flex-wrap:wrap">${btn('all','전체',' #4b5563'.trim())}${btn('B','📦 자재','#4338ca')}${btn('C','🔖 특허','#7c3aed')}</div>`;
+}
+function _renderSalesXlsxBillView(){
+  const allRows=_sxAllBillItems();
+  const trackRows = _sxBillTrack==='all'?allRows:allRows.filter(r=>r.track===_sxBillTrack);
+  // ── 경과일 구간별 집계 (트랙 필터 반영, 검색과 무관한 전체 개요) ──
+  const buckets=_sxAgingBuckets(trackRows);
+  const bTotal=buckets.reduce((s,b)=>s+b.amt,0);
+  const bCnt=buckets.reduce((s,b)=>s+b.items.length,0);
+  const denom=bTotal||1;
+  const seg=buckets.map(b=>`<div style="background:${b.color};flex:${b.amt/denom*100||0}" title="${b.label}"></div>`).join("");
+  const bar=`<div style="display:flex;height:11px;border-radius:6px;overflow:hidden;margin-bottom:12px;background:#f3f4f6">${seg}</div>`;
+  const brows=buckets.map(b=>{ const pct=b.amt/denom*100;
+    return `<div style="display:grid;grid-template-columns:1fr auto 58px 56px;gap:12px;align-items:center;padding:6px 2px;font-size:13px">
+       <span style="display:flex;align-items:center;gap:8px;color:#374151"><span style="width:11px;height:11px;border-radius:3px;background:${b.color};display:inline-block"></span>${b.label}</span>
+       <b style="color:#111827">${_sxEok(b.amt)}</b>
+       <span style="color:#9ca3af;text-align:right">${pct.toFixed(1)}%</span>
+       <span style="color:#6b7280;text-align:right">${b.items.length}건</span>
+     </div>`; }).join("");
+  const trackLabel=_sxBillTrack==='all'?'전체':_sxBillTrack==='B'?'자재':'특허';
+  const agingBlock=`<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:14px 16px;margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:11px">
+        <span style="font-size:12px;font-weight:800;color:#374151">📊 경과일 구간별 미수 · ${trackLabel}</span>
+        <span style="font-size:11px;color:#9ca3af">합계 <b style="color:#374151">${_sxEok(bTotal)}</b> · ${bCnt}건</span>
+      </div>
+      ${bar}${brows}
+    </div>`;
+  // ── 건별 목록 (트랙 필터 + 현장/업체 검색, 경과일 오래된 순) ──
+  const q=(upSearch||'').trim().toLowerCase();
+  let listRows=trackRows.slice();
+  if(q) listRows=listRows.filter(r=> r.name.toLowerCase().includes(q) || String(r.site||'').toLowerCase().includes(q));
+  listRows.sort((a,b)=>{ if((a.kind==='off')!==(b.kind==='off')) return a.kind==='off'?1:-1; return (b.ov||0)-(a.ov||0); });
+  const misCnt=listRows.filter(r=>r.kind!=='off').length;
+  const pInfo=paginateSlice(listRows, 'unpaidBill');
+  const pagedRows=pInfo.slice;
+  let table;
+  if(!listRows.length){
+    table=`<div class="info-box info-green" style="text-align:center;padding:16px">${salesUnpaidData?(q?`🔍 "${escHtml(upSearch)}" 검색 결과가 없습니다.`:'표시할 미수 건이 없습니다.'):'매출현황 엑셀을 업로드하면 계산서 건별 미수가 표시됩니다.'}</div>`;
+  } else {
+    const tb=(track)=> track==='C'?`<span style="font-size:9px;font-weight:700;background:#f3e8ff;color:#7c3aed;border-radius:4px;padding:1px 5px">특허</span>`:`<span style="font-size:9px;font-weight:700;background:#e0e7ff;color:#4338ca;border-radius:4px;padding:1px 5px">자재</span>`;
+    const kindTag=(r)=> r.kind==='off'?`<span style="font-size:9px;color:#0e7490">상계</span>`:(r.partial?`<span style="font-size:9px;color:#b45309">부분입금</span>`:'');
+    const rowsHtml=pagedRows.map(r=>{ const isOff=r.kind==='off'; const agc=r.ov>=90?'#dc2626':r.ov>=41?'#ea580c':'#6b7280';
+      return `<tr style="border-top:1px solid var(--gray-100)">
+        <td style="padding:6px 8px;white-space:nowrap">${tb(r.track)} <b style="color:#374151">${escHtml(r.name)}</b></td>
+        <td style="padding:6px 8px;color:#374151">${isOff?'↩ ':''}${escHtml(r.site||'-')}</td>
+        <td style="padding:6px 8px;color:#6b7280;white-space:nowrap">${r.date}${!isOff?` <span style="color:${agc};font-weight:600">D+${r.ov}</span>`:''}</td>
+        <td style="padding:6px 8px">${kindTag(r)}</td>
+        <td style="padding:6px 8px;text-align:right;font-weight:600;color:${isOff?'#0e7490':(r.ov>=90?'#dc2626':'#111827')};white-space:nowrap">${fmtNum(r.supply)}</td>
+      </tr>`; }).join("");
+    table=`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11.5px;background:#fff;border:1px solid var(--gray-200);border-radius:8px;overflow:hidden">
+       <tr style="background:#f8f9ff;font-size:10px;color:#6b7280;text-align:left"><th style="padding:7px 8px">업체</th><th style="padding:7px 8px">현장</th><th style="padding:7px 8px">계산서발행일</th><th style="padding:7px 8px">구분</th><th style="padding:7px 8px;text-align:right">공급가액</th></tr>
+       ${rowsHtml}</table></div>${renderPagination('unpaidBill', pInfo, 'renderUnpaid')}`;
+  }
+  document.getElementById("page-4").innerHTML = `<p class="sec-title">💰 미수금 관리</p>${_sxViewToggle('bill')}${_salesXlsxPanelHTML()}${_sxBillTrackBar()}${agingBlock}${_sxSearchBar('현장명·업체명 검색...')}${table}`;
+  if(typeof _restoreUpSearchFocus==='function') _restoreUpSearchFocus();
+}
+
+// ─── [3단계] 거래처 마스터 이메일 매칭 (정규화 자동매칭 + 미매칭 수동 확정) ───
+const SX_EMAIL_MAP_KEY = "sx_email_map_v1";
+let sxEmailOverride = {};   // { "엑셀업체명": {email, masterName} } — 로컬 매칭 보정(마스터 이메일은 그대로 동기화)
+let _sxMatchOpen = false;
+function loadSxEmailOverride(){ try{ const r=localStorage.getItem(SX_EMAIL_MAP_KEY); sxEmailOverride = r?JSON.parse(r):{}; }catch(e){ sxEmailOverride={}; } }
+function saveSxEmailOverride(){ try{ localStorage.setItem(SX_EMAIL_MAP_KEY, JSON.stringify(sxEmailOverride)); }catch(e){} }
+// 정규화: 법인격 표기·괄호·공백 제거 후 소문자
+function _sxNorm(s){ return String(s||"").replace(/㈜|\(주\)|\(유\)|\(재\)|\(사\)|\(합\)|주식회사|유한회사|유한책임회사/g,"").replace(/\s+/g,"").toLowerCase(); }
+function _sxMatchEmail(name){
+  const ov = sxEmailOverride[name];
+  if(ov && ov.email) return { email:ov.email, masterName:ov.masterName||"", status:"manual" };
+  const key=_sxNorm(name);
+  const hits=(companyMaster||[]).filter(c=>_sxNorm(c.name)===key);
+  if(hits.length===1) return { email:hits[0].email, masterName:hits[0].name, status:"auto" };
+  if(hits.length>1)  return { email:"", masterName:"", status:"ambiguous", candidates:hits };
+  return { email:"", masterName:"", status:"none" };
+}
+function _sxMatchStats(){
+  const names=_sxMerged().map(o=>o.name); let auto=0,manual=0,none=0,amb=0;
+  names.forEach(n=>{ const s=_sxMatchEmail(n).status; if(s==="auto")auto++; else if(s==="manual")manual++; else if(s==="ambiguous")amb++; else none++; });
+  return { total:names.length, auto, manual, amb, none, resolved:auto+manual, unresolved:amb+none };
+}
+function _sxAssignByMaster(name, masterName){
+  masterName=(masterName||"").trim(); if(!masterName) return;
+  const c=(companyMaster||[]).find(x=>x.name===masterName) || (companyMaster||[]).find(x=>_sxNorm(x.name)===_sxNorm(masterName));
+  if(!c){ alert("마스터에서 '"+masterName+"' 업체를 찾을 수 없습니다.\n목록에서 선택하거나 이메일을 직접 입력해 주세요."); return; }
+  sxEmailOverride[name]={ email:c.email, masterName:c.name }; saveSxEmailOverride();
+  if(currentTab===4&&upViewMode==='customer') renderUnpaidByCustomer();
+}
+function _sxAssignByEmail(name, email){
+  email=(email||"").trim(); if(!email) return;
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ alert("이메일 형식이 올바르지 않습니다: "+email); return; }
+  const prev=sxEmailOverride[name]||{};
+  sxEmailOverride[name]={ email, masterName:prev.masterName||"(직접입력)" }; saveSxEmailOverride();
+  if(currentTab===4&&upViewMode==='customer') renderUnpaidByCustomer();
+}
+function _sxClearOverride(name){ delete sxEmailOverride[name]; saveSxEmailOverride(); if(currentTab===4&&upViewMode==='customer') renderUnpaidByCustomer(); }
+function _sxToggleMatchPanel(){ _sxMatchOpen=!_sxMatchOpen; if(currentTab===4&&upViewMode==='customer') renderUnpaidByCustomer(); }
+function _sxMasterDatalist(){ return `<datalist id="sx-master-dl">${(companyMaster||[]).map(c=>`<option value="${escHtml(c.name)}">${escHtml(c.email)}</option>`).join("")}</datalist>`; }
+function _sxMatchRow(name){
+  const r=_sxMatchEmail(name), en=_escCreditName(name);
+  const chip=(bg,fg,t)=>`<span style="font-size:10px;font-weight:700;background:${bg};color:${fg};border-radius:5px;padding:2px 7px;white-space:nowrap">${t}</span>`;
+  const badge = r.status==="auto"?chip('#dcfce7','#15803d','✅ 자동')
+    : r.status==="manual"?chip('#dbeafe','#1d4ed8','✋ 수동확정')
+    : r.status==="ambiguous"?chip('#fef3c7','#b45309',`⚠️ 중복후보 ${r.candidates.length}`)
+    : chip('#fee2e2','#dc2626','🔴 미매칭');
+  const emailCell = r.email
+    ? `<b style="color:#111827">${escHtml(r.email)}</b>${r.masterName?`<span style="color:#9ca3af;font-size:10px"> · ${escHtml(r.masterName)}</span>`:''}`
+    : `<span style="color:#dc2626;font-size:11px">이메일 없음</span>`;
+  const inStyle="border:1px solid #d1d5db;border-radius:6px;padding:5px 8px;font-size:11px;font-family:inherit;outline:none";
+  const masterInput=`<input list="sx-master-dl" placeholder="마스터 업체 선택" onchange="_sxAssignByMaster('${en}', this.value); this.value=''" style="${inStyle};width:150px" data-ime="off"/>`;
+  const emailInput=`<input type="email" placeholder="이메일 직접입력" onchange="_sxAssignByEmail('${en}', this.value); this.value=''" style="${inStyle};width:160px"/>`;
+  const clearBtn = r.status==="manual"?`<button onclick="_sxClearOverride('${en}')" style="border:1px solid #fca5a5;background:#fff;color:#dc2626;border-radius:6px;padding:5px 8px;font-size:11px;cursor:pointer;font-family:inherit">지정해제</button>`:'';
+  return `<tr style="border-top:1px solid var(--gray-100)">
+     <td style="padding:7px 8px;font-weight:600;color:#374151;white-space:nowrap">${escHtml(name)}</td>
+     <td style="padding:7px 8px">${badge}</td>
+     <td style="padding:7px 8px">${emailCell}</td>
+     <td style="padding:7px 8px"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${masterInput}${emailInput}${clearBtn}</div></td>
+   </tr>`;
+}
+function _sxMatchTable(names){
+  return `<table style="width:100%;border-collapse:collapse;font-size:11.5px;background:#fff;border-radius:8px;overflow:hidden">
+     <tr style="background:#f8f9ff;font-size:10px;color:#6b7280;text-align:left">
+       <th style="padding:6px 8px">엑셀 업체명</th><th style="padding:6px 8px">상태</th><th style="padding:6px 8px">발송 이메일 · 매칭 마스터</th><th style="padding:6px 8px">수동 지정</th></tr>
+     ${names.map(_sxMatchRow).join("")}
+   </table>`;
+}
+function _sxMatchPanelHTML(){
+  const st=_sxMatchStats();
+  const names=_sxMerged().map(o=>o.name);
+  const unresolved=names.filter(n=>{const s=_sxMatchEmail(n).status; return s==="none"||s==="ambiguous";});
+  const manual=names.filter(n=>_sxMatchEmail(n).status==="manual");
+  const auto=names.filter(n=>_sxMatchEmail(n).status==="auto");
+  const badge = st.unresolved>0
+    ? `<span style="background:#fee2e2;color:#dc2626;font-weight:800;border-radius:6px;padding:2px 9px;font-size:12px">미매칭 ${st.unresolved}</span>`
+    : `<span style="background:#dcfce7;color:#15803d;font-weight:800;border-radius:6px;padding:2px 9px;font-size:12px">전체 매칭 완료</span>`;
+  const head=`<div onclick="_sxToggleMatchPanel()" style="display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span style="font-weight:700;font-size:13px;color:#3730a3">📧 이메일 매칭</span>
+        <span style="font-size:12px;color:#4b5563">자동 ${st.auto} · 수동 ${st.manual} · 미매칭 ${st.unresolved} / 총 ${st.total}</span>
+        ${badge}
+      </div>
+      <span style="color:#6366f1;font-size:12px;font-weight:600">${_sxMatchOpen?'접기 ▲':'매칭 관리 ▼'}</span>
+    </div>`;
+  let body="";
+  if(_sxMatchOpen){
+    body=`<div style="margin-top:10px">`;
+    if(unresolved.length) body+=`<div style="font-size:11px;color:#dc2626;font-weight:700;margin:4px 0 6px">🔴 미매칭 · 확인 필요 (${unresolved.length}) — 마스터 업체를 선택하면 이메일이 자동 지정됩니다</div>`+_sxMatchTable(unresolved);
+    if(manual.length) body+=`<div style="font-size:11px;color:#1d4ed8;font-weight:700;margin:14px 0 6px">✋ 수동 확정 (${manual.length})</div>`+_sxMatchTable(manual);
+    if(auto.length) body+=`<details style="margin-top:14px"><summary style="cursor:pointer;font-size:11px;color:#15803d;font-weight:700">✅ 자동 매칭 ${auto.length}건 보기·수정</summary><div style="margin-top:6px">${_sxMatchTable(auto)}</div></details>`;
+    if(!names.length) body+=`<div style="color:#6b7280;font-size:12px">업체가 없습니다.</div>`;
+    body+=`</div>`;
+  }
+  return `<div style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:10px;padding:12px 14px;margin-bottom:12px">${head}${body}</div>${_sxMasterDatalist()}`;
+}
+
+// ─── [4단계] 엑셀 업체 → 메일 그룹 변환 + 초안 미리보기 (현재 월 기준 로직 + 2.7차) ───
+// 기존 1/2/2.5/3차 빌더를 그대로 재사용 → 문구 동일. 그룹 shape을 collectUnpaidByCustomer와 일치시킴.
+function _sxBuildGroup(o, track){
+  const grp = (track==="C") ? o.C : o.B;
+  if(!grp) return null;
+  const em = _sxMatchEmail(o.name);
+  const sp = _sxSplitItems(grp);                          // 선택 청구월 기준 분리
+  const g = { customerName:o.name, customerEmail:em.email||"", monthLabel:sp.rp.monthLabel, sites:{}, refunds:[], totalUnpaid:0 };
+  const getSite = (apt)=>{ const key=(apt||"")+"|"; if(!g.sites[key]) g.sites[key]={aptName:apt||"", constructionName:"", newAmount:0, newIssuedDate:"", newItems:[], previousItems:[]}; return g.sites[key]; };
+  sp.cur.forEach(it=>{ const s=getSite(it.site); s.newAmount+=it.supply; if(!s.newIssuedDate) s.newIssuedDate=it.date; s.newItems.push({issuedDate:it.date, amount:it.supply}); });
+  sp.prev.forEach(it=>{ const s=getSite(it.site); s.previousItems.push({issuedDate:it.date, amount:it.supply, daysOverdue:it.ov}); });
+  sp.offs.forEach(of=>{ g.refunds.push({ date:of.date, item:"상계·공제", amount: of.supply, aptName: of.site||"" }); });
+  g.sites = Object.values(g.sites).filter(s=> s.newAmount>0 || (s.previousItems||[]).length>0);
+  const sitesSum = g.sites.reduce((a,s)=> a + (Number(s.newAmount)||0) + (s.previousItems||[]).reduce((x,p)=>x+(Number(p.amount)||0),0), 0);
+  const refSum   = g.refunds.reduce((a,r)=> a + (Number(r.amount)||0), 0);
+  g.totalUnpaid = sitesSum + refSum;
+  return g;
+}
+function _sxOpenPreview(name, stage, track){
+  const o=_sxMerged().find(x=>x.name===name);
+  if(!o){ alert("업체 데이터를 찾지 못했습니다: "+name); return; }
+  if((track==="C"?!o.C:!o.B)){ alert((track==="C"?"특허료":"자재")+" 미수 내역이 없습니다."); return; }
+  const g=_sxBuildGroup(o, track);
+  if(!g || !g.sites.length){ alert("표시할 미수 내역이 없습니다.\n(당월 이후 발행분만 있는 경우 결제의무 미발생으로 제외됩니다.)"); return; }
+  if(!g.customerEmail){ alert("⚠️ 이메일이 매칭되지 않은 업체입니다.\n상단 '이메일 매칭'에서 먼저 지정해 주세요."); return; }
+  if(stage==="2.7"){
+    const input = prompt("협의된 입금 예정일을 입력하세요 (YYYY-MM-DD)\n※ 2.5차 유선 협의에서 확약받은 날짜", g.dueDate||"");
+    if(input===null) return;
+    const t=(input||"").trim();
+    if(t && !/^\d{4}-\d{2}-\d{2}$/.test(t)){ alert("날짜 형식은 YYYY-MM-DD 입니다."); return; }
+    g.dueDate=t;
+  }
+  openTrackPreview(name, stage, track, g);
+}
+function _sxStageButtons(name, track){
+  const en=_escCreditName(name);
+  const stages=[["안내","📄 청구안내"],["1","1차"],["2","2차"],["2.5","2.5차"],["2.7","2.7차"],["3","3차"]];
+  const colors={"안내":"#64748b","1":"#10b981","2":"#3b82f6","2.5":"#f59e0b","2.7":"#6366f1","3":"#dc2626"};
+  const tlabel=track==="C"?"🔖 특허료 메일 초안":"📦 자재 메일 초안";
+  return `<div style="margin-top:8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+     <span style="font-size:10.5px;color:#6b7280;font-weight:700;margin-right:2px">${tlabel}:</span>
+     ${stages.map(([s,l])=>`<button onclick="_sxOpenPreview('${en}','${s}','${track}')" style="border:1px solid ${colors[s]}55;background:#fff;color:${colors[s]};border-radius:6px;padding:5px 11px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">${l}</button>`).join("")}
+   </div>`;
+}
+
 function renderUnpaidByCustomer(){
+  // [5단계] 미수금 업체별 = 엑셀 전용 완전 대체 (엑셀 미업로드 시에도 업로드 안내·빈 상태 표시)
+  { _renderSalesXlsxView(); return; }
+  // ↓ (구) 대시보드 기반 집계 — 엑셀 전용 전환으로 미사용(보존)
   const refDate = getViewReferenceDate();
   const groups = collectUnpaidByCustomer(refDate);
   const totalNet = groups.reduce((s,g)=>s+g.totalUnpaid, 0);
@@ -4405,6 +4983,9 @@ function renderUnpaidByCustomer(){
     <button onclick="upSetViewMode('bill')" style="padding:7px 14px;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;background:transparent;color:#6b7280;font-family:inherit">📄 청구서별</button>
     <button onclick="upSetViewMode('customer')" style="padding:7px 14px;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;background:#fff;color:#1f2937;box-shadow:0 1px 2px rgba(0,0,0,.06);font-family:inherit">📨 업체별</button>
   </div>
+
+  <!-- [1단계] 매출현황 엑셀 업로드 + 검증 요약 -->
+  ${_salesXlsxPanelHTML()}
 
   <!-- 요약 카드 -->
   <div class="grid-4" style="margin-bottom:12px">
@@ -8232,17 +8813,21 @@ async function sendEmail(){
 
 // ─── 메일 빌더 진입점 ─────────────────────────
 const TRACK_B_TEMPLATES = {
+  "안내": buildStageNoticeMail,
   "1":   buildStage1Mail,
   "2":   buildStage2Mail,
   "2.5": buildStage2_5Mail,
+  "2.7": buildStage2_7Mail,
   "3":   buildStage3Mail,
 };
 
 // 트랙 C (특허료) 메일 템플릿 디스패처 — 트랙 B와 동일 패턴
 const TRACK_C_TEMPLATES = {
+  "안내": buildStageNoticeMail_C,
   "1":   buildStage1Mail_C,
   "2":   buildStage2Mail_C,
   "2.5": buildStage2_5Mail_C,
+  "2.7": buildStage2_7Mail_C,
   "3":   buildStage3Mail_C,
 };
 
@@ -8310,6 +8895,22 @@ function _refundsBlock(refunds) {
   return "\n\n" + lines.join("\n");
 }
 
+// ─── [일반 청구·미수 안내] 예외 업체용 — 독촉·입금요청 없이 미수 내역만 안내 ───
+function buildStageNoticeMail(g) {
+  return {
+    to: g.customerEmail, stage: "안내",
+    subject: "[넷폼] " + g.customerName + " 자재 대금 미수 내역 안내 (" + g.monthLabel + "월 기준)",
+    body:
+      g.customerName + " 담당자님 안녕하세요.\n넷폼입니다.\n\n" +
+      "평소 저희 회사와의 원활한 거래에 감사드립니다.\n" +
+      g.monthLabel + "월 기준 자재 대금 미수 내역을 아래와 같이 안내드립니다.\n" +
+      "아래 미수 내역을 확인하신 후, 문의사항이 있으시면 편하게 연락 주시기 바랍니다.\n\n" +
+      _sitesBlock(g.sites) + _refundsBlock(g.refunds) + "\n\n" +
+      "■ " + g.customerName + " 전체 미수 합계: " + _fmtKRW(g.totalUnpaid) + " (공급가액 기준, VAT 별도)\n\n" +
+      "감사합니다.\n\n㈜넷폼\n대표번호: 1899-2734"
+  };
+}
+
 // ─── 4종 메일 템플릿 ──────────────────────────
 function buildStage1Mail(g) {
   return {
@@ -8361,6 +8962,26 @@ function buildStage2_5Mail(g) {
       "당사는 귀사와의 지속적인 신뢰 관계를 최우선으로 생각하고 있습니다.\n" +
       "부득이한 사정으로 일정이 지연되는 경우, 담당자와의 협의를 통해 원만히 조정될 수 있도록 적극적인 협조 부탁드립니다.\n\n" +
       "감사합니다.\n\n㈜넷폼\n대표번호: 1899-2734"
+  };
+}
+
+// 2.7차 — 입금예정일 확인 (2.5차 유선 협의 후, 이벤트성) — 합의된 입금예정일 문서화
+function buildStage2_7Mail(g) {
+  const due = g.dueDate ? _fmtMD(g.dueDate) : "(협의된 입금 예정일 기재)";
+  return {
+    to: g.customerEmail, stage: "2.7",
+    subject: "[넷폼] " + g.customerName + " " + g.monthLabel + "월분 자재 대금 입금예정일 확인 안내",
+    body:
+      g.customerName + " 담당자님 안녕하세요.\n넷폼입니다.\n\n" +
+      "앞서 유선으로 협의해 주신 자재 대금 입금 일정을 아래와 같이 확인드립니다.\n" +
+      "협의해 주신 내용에 착오가 없는지 확인 부탁드립니다.\n\n" +
+      _sitesBlock(g.sites) + _refundsBlock(g.refunds) + "\n\n" +
+      "■ " + g.customerName + " 전체 미결제 합계: " + _fmtKRW(g.totalUnpaid) + " (공급가액 기준, VAT 별도)\n" +
+      "■ 협의된 입금 예정일: " + due + "\n\n" +
+      "위 일정에 맞추어 입금이 원활히 진행될 수 있도록 협조 부탁드립니다.\n" +
+      "입금 일정에 변경이 필요하신 경우, 예정일 이전에 반드시 사전 연락 부탁드립니다.\n\n" +
+      "당사는 귀사와의 지속적인 신뢰 관계를 최우선으로 생각하고 있습니다.\n" +
+      "협의에 응해 주셔서 감사합니다.\n\n㈜넷폼\n대표번호: 1899-2734"
   };
 }
 
@@ -8428,6 +9049,22 @@ function _siteBlockC(site) {
 }
 function _sitesBlockC(sites){ return (sites||[]).map(_siteBlockC).join("\n\n"); }
 
+// [일반 청구·미수 안내] 예외 업체용 — 특허료 미수 내역만 안내(독촉·입금요청 없음)
+function buildStageNoticeMail_C(g) {
+  return {
+    to: g.customerEmail, stage: "안내", track: "C",
+    subject: "[넷폼] " + g.customerName + " 특허료 미수 내역 안내 (" + g.monthLabel + "월 기준)",
+    body:
+      g.customerName + " 담당자님 안녕하세요.\n넷폼입니다.\n\n" +
+      "평소 저희 회사와의 원활한 협업에 감사드립니다.\n" +
+      g.monthLabel + "월 기준 특허료 미수 내역을 아래와 같이 안내드립니다.\n" +
+      "아래 미수 내역을 확인하신 후, 문의사항이 있으시면 편하게 연락 주시기 바랍니다.\n\n" +
+      _sitesBlockC(g.sites) + _refundsBlock(g.refunds) + "\n\n" +
+      "■ " + g.customerName + " 전체 미수 합계: " + _fmtKRW(g.totalUnpaid) + " (공급가액 기준, VAT 별도)\n\n" +
+      "감사합니다.\n\n㈜넷폼\n대표번호: 1899-2734"
+  };
+}
+
 // 1차 — 정기 리마인드 (익월 10일 발송)
 function buildStage1Mail_C(g) {
   return {
@@ -8483,6 +9120,26 @@ function buildStage2_5Mail_C(g) {
       "당사는 귀사와의 지속적인 신뢰 관계를 최우선으로 생각하고 있으며,\n" +
       "부득이한 사정으로 일정이 지연되는 경우 담당자와의 협의를 통해 원만히 조정될 수 있도록 적극적인 협조 부탁드립니다.\n\n" +
       "감사합니다.\n\n㈜넷폼\n대표번호: 1899-2734"
+  };
+}
+
+// 2.7차 — 입금예정일 확인 (2.5차 유선 협의 후, 이벤트성)
+function buildStage2_7Mail_C(g) {
+  const due = g.dueDate ? _fmtMD(g.dueDate) : "(협의된 입금 예정일 기재)";
+  return {
+    to: g.customerEmail, stage: "2.7", track: "C",
+    subject: "[넷폼] " + g.customerName + " " + g.monthLabel + "월분 특허료 입금예정일 확인 안내",
+    body:
+      g.customerName + " 담당자님 안녕하세요.\n넷폼입니다.\n\n" +
+      "앞서 유선으로 협의해 주신 특허료 입금 일정을 아래와 같이 확인드립니다.\n" +
+      "협의해 주신 내용에 착오가 없는지 확인 부탁드립니다.\n\n" +
+      _sitesBlockC(g.sites) + _refundsBlock(g.refunds) + "\n\n" +
+      "■ " + g.customerName + " 전체 미결제 합계: " + _fmtKRW(g.totalUnpaid) + " (공급가액 기준, VAT 별도)\n" +
+      "■ 협의된 입금 예정일: " + due + "\n\n" +
+      "위 일정에 맞추어 입금이 원활히 진행될 수 있도록 협조 부탁드립니다.\n" +
+      "입금 일정에 변경이 필요하신 경우, 예정일 이전에 반드시 사전 연락 부탁드립니다.\n\n" +
+      "당사는 귀사와의 지속적인 신뢰 관계를 최우선으로 생각하고 있습니다.\n" +
+      "협의에 응해 주셔서 감사합니다.\n\n㈜넷폼\n대표번호: 1899-2734"
   };
 }
 
@@ -9100,9 +9757,11 @@ function authInit(cfg){
           tbhFbLoad().then(() => tbhFbListen());  // 이력 로드 + 리스너
           tchFbConnect();              // [트랙 C / STEP 4-B] 특허료 이력 Firebase 연결
           tchFbLoad().then(() => tchFbListen());  // 트랙 C 이력 로드 + 리스너
+          sxFbConnect();               // [매출현황] 파싱 데이터 Firebase 연결
+          sxFbLoad().then(() => { sxFbListen(); if(currentTab===4) renderUnpaid(); });
           // [STEP 4-D] 기존 이력에 monthKey 자동 부여 (구버전 데이터 호환)
           setTimeout(() => migrateAddMonthKey(), 2000);
-          renderPage(currentTab); 
+          renderPage(currentTab);
         }));
       } else {
         // 이미 DB 있으면 리스너만 재시작
@@ -9112,8 +9771,10 @@ function authInit(cfg){
           tbhFbLoad().then(() => tbhFbListen());
           if (!_tchFbRef) tchFbConnect();
           tchFbLoad().then(() => tchFbListen());
+          if (!_sxFbRef) sxFbConnect();
+          sxFbLoad().then(() => { sxFbListen(); if(currentTab===4) renderUnpaid(); });
           setTimeout(() => migrateAddMonthKey(), 2000);
-          renderPage(currentTab); 
+          renderPage(currentTab);
         });
       }
     } else {
@@ -9300,11 +9961,12 @@ async function tbhSave(){
 
 // ─── 조회 헬퍼 ───
 function getCustomerStage(customerName){
-  return (trackBHistory[customerName] || {}).lastStage || null;
+  const h = getCustomerHistoryByTrack(customerName, "B");
+  return h.length ? h[h.length-1].stage : null;
 }
 
 function getCustomerHistory(customerName){
-  return (trackBHistory[customerName] || {}).history || [];
+  return getCustomerHistoryByTrack(customerName, "B");
 }
 
 function getLastSent(customerName, stage){
@@ -9616,9 +10278,18 @@ async function saveTrackHistory(track){
 }
 
 // 업체 전체 이력 (트랙별, 청구월 무관)
+// [5단계] 정규화 키 병합 조회 — 기존 이력은 그대로 두고, 법인격 표기가 달라도(㈜/(주) 등)
+// 같은 회사의 발송 이력을 하나로 묶어서 반환. store는 절대 변경하지 않음(삭제·이동 없음).
 function getCustomerHistoryByTrack(customerName, track){
   const store = getHistoryStore(track);
-  return (store[customerName] || {}).history || [];
+  const k = (typeof _sxNorm==="function") ? _sxNorm(customerName) : String(customerName||"");
+  let hist = [];
+  for (const raw in store){
+    const rk = (typeof _sxNorm==="function") ? _sxNorm(raw) : raw;
+    if (rk === k) hist = hist.concat((store[raw]||{}).history || []);
+  }
+  hist.sort((a,b)=> new Date(a.sentAt||0) - new Date(b.sentAt||0));
+  return hist;
 }
 
 // 특정 청구월의 이력만 필터
@@ -10098,6 +10769,8 @@ loadGuidePdfStore();
 loadHiworksDomain();
 loadN8nWebhook();
 loadCompanyMaster();
+loadSxEmailOverride();  // [3단계] 엑셀 업체명↔마스터 이메일 수동 매칭 보정 로드
+loadSalesUnpaidLocal(); // [매출현황] 파싱 데이터 localStorage 복원(재접속 유지)
 tbhLoadLocal();  // [트랙 B / STEP 4-A] 발송 이력 localStorage 로드
 tchLoadLocal();  // [트랙 C / STEP 4-B] 특허료 이력 localStorage 로드
 document.getElementById("today-date").textContent=new Date().toLocaleDateString("ko-KR");
