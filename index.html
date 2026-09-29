@@ -7377,7 +7377,7 @@ async function ordDownloadBillXlsx(pid, docNumber, issuedDate){
     }
     setStr("C3", p.customerName||"");   // 수신처
     setStr("C5", aptForCell);           // 제목 (서식이 " 아파트 특허료 지급 요청의 건" 자동부착)
-    setStr("D10", "  " + aptForCell);   // 본문 아파트명 (앞 여백으로 "낙찰받은"과 간격 · 서식이 " 아파트 낙찰가액" 자동부착)
+    setStr("D10", "      " + aptForCell);   // 본문 아파트명 (앞 여백 6칸으로 "낙찰받은"과 간격 확보 · 서식이 " 아파트 낙찰가액" 자동부착)
     setStr("A21", aptName);             // 표 아파트명
     setStr("G21", workName);            // 표 공사명
     updNum("B12", bid);                 // 낙찰금액
